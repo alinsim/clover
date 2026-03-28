@@ -41,6 +41,15 @@ public abstract class AbstractInstrTask extends AbstractCloverTask {
         config.setFullyQualifyJavaLang(fullyQualify);
     }
 
+    /**
+     * Set whether to use JavaParser for instrumentation instead of ANTLR.
+     *
+     * @param useJavaParser if true, use JavaParser; if false, use ANTLR (default: true)
+     */
+    public void setUseJavaParser(boolean useJavaParser) {
+        config.setUseJavaParser(useJavaParser);
+    }
+
     public void setRecordTestResults(boolean record) {
         config.setRecordTestResults(record);
     }

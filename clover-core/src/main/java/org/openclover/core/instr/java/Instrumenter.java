@@ -217,9 +217,9 @@ public class Instrumenter {
         // Set source encoding for the session
         session.setSourceEncoding(fileEncoding);
 
-        // Delegate to SessionAwareInstrumenter
+        // Delegate to SessionAwareInstrumenter with context store
         final FileStructureInfo fileStructureInfo = SessionAwareInstrumenter.instrument(
-                in, out, session, config, fileEncoding);
+                in, out, session, config, fileEncoding, registry.getContextStore());
 
         // Update statistics to match ANTLR path behavior
         final FullFileInfo fileInfo = (FullFileInfo) session.getCurrentFile();

@@ -42,6 +42,9 @@ import org.openclover.core.api.registry.FileInfo;
 import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
 import org.openclover.core.cfg.instr.java.SourceLevel;
 import org.openclover.core.context.ContextSetImpl;
+import org.openclover.core.context.ContextStore;
+import org.openclover.core.context.MethodRegexpContext;
+import org.openclover.core.context.StatementRegexpContext;
 import org.openclover.core.instr.java.FileStructureInfo;
 import org.openclover.core.instr.java.InstrumentationSource;
 import org.openclover.core.registry.FixedSourceRegion;
@@ -107,6 +110,28 @@ public class SessionAwareInstrumenter {
             @NotNull InstrumentationSession session,
             @NotNull JavaInstrumentationConfig config,
             @Nullable String fileEncoding) throws CloverException {
+        return instrument(source, output, session, config, fileEncoding, null);
+    }
+
+    /**
+     * Instruments a single Java source file using JavaParser with context matching support.
+     *
+     * @param source       the source to instrument (file or string)
+     * @param output       writer for the instrumented output
+     * @param session      the active instrumentation session
+     * @param config       instrumentation configuration
+     * @param fileEncoding file encoding (nullable, defaults to config encoding)
+     * @param contextStore context store with method and statement patterns (nullable)
+     * @return metadata about the instrumented file structure
+     * @throws CloverException if instrumentation fails
+     */
+    public static FileStructureInfo instrument(
+            @NotNull InstrumentationSource source,
+            @NotNull Writer output,
+            @NotNull InstrumentationSession session,
+            @NotNull JavaInstrumentationConfig config,
+            @Nullable String fileEncoding,
+            @Nullable ContextStore contextStore) throws CloverException {
 
         try {
             // Read the source code into a string
@@ -153,7 +178,7 @@ public class SessionAwareInstrumenter {
             // Create visitor and collect insertions
             List<Insertion> insertions = new ArrayList<>();
             SessionAwareVisitor visitor = new SessionAwareVisitor(
-                    session, config, recorderPrefix, config.getInitString(), session.getVersion());
+                    session, config, recorderPrefix, config.getInitString(), session.getVersion(), contextStore);
             visitor.initializeDisabledRanges(cu);
             visitor.visit(cu, insertions);
 
@@ -281,15 +306,17 @@ public class SessionAwareInstrumenter {
         private final String initString;
         private final long registryVersion;
         private final List<DisabledRange> disabledRanges;
+        private final ContextStore contextStore;
         private int lambdaCounter;
 
         SessionAwareVisitor(InstrumentationSession session, JavaInstrumentationConfig config,
-                           String recorderPrefix, String initString, long registryVersion) {
+                           String recorderPrefix, String initString, long registryVersion, ContextStore contextStore) {
             this.session = session;
             this.config = config;
             this.recorderPrefix = recorderPrefix;
             this.initString = initString;
             this.registryVersion = registryVersion;
+            this.contextStore = contextStore;
             this.disabledRanges = new ArrayList<>();
             this.lambdaCounter = 0;
         }
@@ -346,6 +373,42 @@ public class SessionAwareInstrumenter {
                 }
             }
             return true;
+        }
+
+        /**
+         * Matches a method declaration against registered method context patterns.
+         */
+        private ContextSetImpl matchMethodContexts(MethodDeclaration methodDecl) {
+            ContextSetImpl ctx = new ContextSetImpl();
+            if (contextStore == null) {
+                return ctx;
+            }
+
+            String sig = methodDecl.getDeclarationAsString(true, true, true);
+            for (MethodRegexpContext mctx : contextStore.getMethodContexts()) {
+                if (mctx.getPattern().matcher(sig).matches()) {
+                    ctx = ctx.set(mctx.getIndex());
+                }
+            }
+            return ctx;
+        }
+
+        /**
+         * Matches a statement against registered statement context patterns.
+         */
+        private ContextSetImpl matchStatementContexts(Statement stmt) {
+            ContextSetImpl ctx = new ContextSetImpl();
+            if (contextStore == null) {
+                return ctx;
+            }
+
+            String text = stmt.toString();
+            for (StatementRegexpContext sctx : contextStore.getStatementContexts()) {
+                if (sctx.getPattern().matcher(text).matches()) {
+                    ctx = ctx.set(sctx.getIndex());
+                }
+            }
+            return ctx;
         }
 
         /**
@@ -535,8 +598,11 @@ public class SessionAwareInstrumenter {
 
                     FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
 
+                    // Match method against context patterns
+                    ContextSetImpl methodContext = matchMethodContexts(methodDecl);
+
                     session.enterMethod(
-                            new ContextSetImpl(),
+                            methodContext,
                             region,
                             sig,
                             isTest,
@@ -919,10 +985,13 @@ public class SessionAwareInstrumenter {
                 return;
             }
 
+            // Match statement against context patterns
+            ContextSetImpl stmtContext = matchStatementContexts(stmt);
+
             // Register statement with session - this allocates an index
             FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
             FullStatementInfo stmtInfo = session.addStatement(
-                    new ContextSetImpl(),
+                    stmtContext,
                     region,
                     0,
                     LanguageConstruct.Builtin.STATEMENT);
@@ -946,10 +1015,13 @@ public class SessionAwareInstrumenter {
                 return;
             }
 
+            // Match statement against context patterns
+            ContextSetImpl stmtContext = matchStatementContexts(branchBody);
+
             // Register statement with session for the branch
             FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
             FullStatementInfo stmtInfo = session.addStatement(
-                    new ContextSetImpl(),
+                    stmtContext,
                     region,
                     0,
                     LanguageConstruct.Builtin.STATEMENT);
