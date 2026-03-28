@@ -25,17 +25,17 @@
                     icon="/icons/clover_tny.png"
                     factoryClass="org.openclover.idea.toolwindow.CloverToolWindowFactory"/>
 
-        <!-- TODO (.8): Settings/Configurable
+        <!-- Settings panels: Settings → Tools → OpenClover -->
         <applicationConfigurable
             id="openclover.global"
             displayName="OpenClover"
+            groupId="tools"
             instance="org.openclover.idea.config.CloverGlobalConfigurable"/>
         <projectConfigurable
             id="openclover.project"
-            displayName="OpenClover"
+            displayName="Project Settings"
             parentId="openclover.global"
             instance="org.openclover.idea.config.CloverProjectConfigurable"/>
-        -->
 
         <!-- TODO (.14): Project view decorator
         <projectViewNodeDecorator
