@@ -48,6 +48,7 @@
                     factoryClass="org.openclover.idea.testexplorer.TestExplorerToolWindowFactory"/>
 
         <!-- Custom file editors for coverage visualizations -->
+        <!-- Coverage visualization editors -->
         <fileEditorProvider
             implementation="org.openclover.idea.report.TreeMapEditorProvider"/>
         <fileEditorProvider

@@ -33,6 +33,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
 }
 
 kotlin {
@@ -71,11 +72,12 @@ intellijPlatform {
     }
 }
 
+configurations.testRuntimeClasspath {
+    exclude(group = "org.spockframework")
+}
+
 tasks {
     test {
         useJUnitPlatform()
     }
-
-    // Ensure clover-core is built and installed to mavenLocal before building this plugin.
-    // Run from the root project: mvn install -pl clover-core -DskipTests
 }
