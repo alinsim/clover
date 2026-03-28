@@ -37,10 +37,9 @@
             parentId="openclover.global"
             instance="org.openclover.idea.config.CloverProjectConfigurable"/>
 
-        <!-- TODO (.14): Project view decorator
+        <!-- Coverage overlay on project tree files -->
         <projectViewNodeDecorator
             implementation="org.openclover.idea.projectview.CoverageProjectViewDecorator"/>
-        -->
 
         <!-- TODO (.12): Custom file editors (TreeMap, Cloud)
         <fileEditorProvider
