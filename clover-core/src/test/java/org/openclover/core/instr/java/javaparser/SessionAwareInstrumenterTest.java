@@ -11,6 +11,9 @@ import org.openclover.core.instr.java.StringInstrumentationSource;
 import org.openclover.core.registry.Clover2Registry;
 import org.openclover.core.registry.metrics.ProjectMetrics;
 import org.openclover.core.util.FileUtils;
+import org.openclover.runtime.CloverNames;
+import org.openclover.runtime.remote.DistributedConfig;
+import org_openclover_runtime.CloverProfile;
 
 import java.io.File;
 import java.io.IOException;
@@ -41,6 +44,16 @@ public class SessionAwareInstrumenterTest {
     private static final String MARKER_TEXT = "This file has been instrumented by OpenClover";
     private static final String ASSERT_AT_LEAST_ONE_STATEMENT = "Should have at least 1 statement";
     private static final String METHOD_CLOSING = "    }\n";
+    private static final String LOCALHOST = "localhost";
+    private static final String INT_X_EQUALS_ONE = "        int x = 1;\n";
+    private static final String IMPORT_JUNIT_TEST = "import org.junit.Test;\n";
+    private static final String PUBLIC_CLASS_FOO_TEST = "public class FooTest {\n";
+    private static final String AT_TEST = "    @Test\n";
+    private static final String PUBLIC_VOID_TEST_FOO = "    public void testFoo() {\n";
+    private static final String CLOSING_BRACE = "}\n";
+    private static final String FOO_TEST_JAVA = "FooTest.java";
+    private static final String GLOBAL_SLICE_START = "globalSliceStart";
+    private static final String GLOBAL_SLICE_END = "globalSliceEnd";
 
     private File workingDir;
     private File registryFile;
@@ -445,6 +458,338 @@ public class SessionAwareInstrumenterTest {
         int firstMethodEntry = indices.get(0);
         assertTrue("First method entry index should be 0, got " + firstMethodEntry,
                 firstMethodEntry == 0);
+    }
+
+    @Test
+    public void testRecorderConfigBitsContainFlushPolicy() throws Exception {
+        String sourceCode = "public class FlushPolicyTest { public void method() { int x = 1; } }";
+
+        JavaInstrumentationConfig config = createConfig();
+        config.setFlushPolicy(1);
+        config.setFlushInterval(500);
+
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "FlushPolicyTest.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        Pattern getRecorderPattern = Pattern.compile("Clover\\.getRecorder\\([^,]+,\\s*\\d+L,\\s*(\\d+)L");
+        Matcher matcher = getRecorderPattern.matcher(instrumented);
+        assertTrue("Should contain Clover.getRecorder call with recorderCfg parameter", matcher.find());
+
+        long recorderCfg = Long.parseLong(matcher.group(1));
+        assertTrue("recorderCfg should be non-zero for INTERVAL flush policy, got " + recorderCfg,
+                recorderCfg != 0L);
+    }
+
+    @Test
+    public void testRecorderMaxDataIndexIsNonZero() throws Exception {
+        String sourceCode =
+                "public class MaxDataIndexTest {\n" +
+                "    public void method() {\n" +
+                "        int x = 1;\n" +
+                "        int y = 2;\n" +
+                "        int z = 3;\n" +
+                METHOD_CLOSING +
+                "}";
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "MaxDataIndexTest.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        Pattern getRecorderPattern = Pattern.compile("Clover\\.getRecorder\\([^,]+,\\s*\\d+L,\\s*\\d+L,\\s*(\\d+)");
+        Matcher matcher = getRecorderPattern.matcher(instrumented);
+        assertTrue("Should contain Clover.getRecorder call with maxDataIndex parameter", matcher.find());
+
+        int maxDataIndex = Integer.parseInt(matcher.group(1));
+        assertTrue("maxDataIndex should be > 0 for class with statements, got " + maxDataIndex,
+                maxDataIndex > 0);
+    }
+
+    @Test
+    public void testRecorderDistributedConfig() throws Exception {
+        String sourceCode = "public class DistributedTest { public void method() { int x = 1; } }";
+
+        JavaInstrumentationConfig config = createConfig();
+        DistributedConfig distConfig = new DistributedConfig();
+        distConfig.setName("test-distributed");
+        distConfig.setHost(LOCALHOST);
+        distConfig.setPort(1234);
+        config.setDistributedConfig(distConfig);
+
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "DistributedTest.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        assertTrue("Should contain distributed config key", instrumented.contains(CloverNames.PROP_DISTRIBUTED_CONFIG));
+        assertTrue("Should contain String array construction for distributed config",
+                instrumented.contains("String[]"));
+    }
+
+    @Test
+    public void testRecorderProfilesPassedThrough() throws Exception {
+        String sourceCode = "public class ProfileTest { public void method() { int x = 1; } }";
+
+        JavaInstrumentationConfig config = createConfig();
+        CloverProfile profile = new CloverProfile(
+                "test-profile",
+                CloverProfile.CoverageRecorderType.GROWABLE,
+                null);
+        config.addProfile(profile);
+
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "ProfileTest.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        assertTrue("Should contain CloverProfile[] declaration",
+                instrumented.contains("CloverProfile[] profiles"));
+        assertTrue("Should contain GROWABLE recorder type", instrumented.contains("GROWABLE"));
+    }
+
+    @Test
+    public void testTestMethodHasGlobalSliceWrapper() throws Exception {
+        String sourceCode = IMPORT_JUNIT_TEST +
+                PUBLIC_CLASS_FOO_TEST +
+                AT_TEST +
+                PUBLIC_VOID_TEST_FOO +
+                INT_X_EQUALS_ONE +
+                METHOD_CLOSING +
+                CLOSING_BRACE;
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, FOO_TEST_JAVA), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        assertTrue("Test method should have globalSliceStart", instrumented.contains(GLOBAL_SLICE_START));
+        assertTrue("Test method should have globalSliceEnd", instrumented.contains(GLOBAL_SLICE_END));
+        assertTrue("Test method should have try block", instrumented.contains("try{"));
+        assertTrue("Test method should have catch clause", instrumented.contains("catch(Throwable"));
+        assertTrue("Test method should have finally clause", instrumented.contains("finally{"));
+        assertTrue("Test method should contain method name in globalSliceEnd", instrumented.contains("\"testFoo\""));
+    }
+
+    @Test
+    public void testNonTestMethodHasNoGlobalSliceWrapper() throws Exception {
+        String sourceCode = "public class Foo {\n" +
+                "    public void doStuff() {\n" +
+                INT_X_EQUALS_ONE +
+                METHOD_CLOSING +
+                CLOSING_BRACE;
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "Foo.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        assertTrue("Non-test method should NOT have globalSliceStart", !instrumented.contains(GLOBAL_SLICE_START));
+        assertTrue("Non-test method should NOT have globalSliceEnd", !instrumented.contains(GLOBAL_SLICE_END));
+        assertTrue("Non-test method should have R.inc() call", instrumented.contains(INC_CALL_PATTERN));
+    }
+
+    @Test
+    public void testParameterizedTestMethodHasGlobalSliceWrapper() throws Exception {
+        String sourceCode = "import org.junit.jupiter.params.ParameterizedTest;\n" +
+                PUBLIC_CLASS_FOO_TEST +
+                "    @ParameterizedTest\n" +
+                "    void testParam(String s) {\n" +
+                "        assert s != null;\n" +
+                METHOD_CLOSING +
+                CLOSING_BRACE;
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, FOO_TEST_JAVA), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        assertTrue("Parameterized test method should have globalSliceStart", instrumented.contains(GLOBAL_SLICE_START));
+        assertTrue("Parameterized test method should have globalSliceEnd", instrumented.contains(GLOBAL_SLICE_END));
+        assertTrue("Parameterized test method should reference TEST_NAME_SNIFFER", instrumented.contains("TEST_NAME_SNIFFER"));
+    }
+
+    @Test
+    public void testMixedTestAndNonTestMethods() throws Exception {
+        String sourceCode = IMPORT_JUNIT_TEST +
+                PUBLIC_CLASS_FOO_TEST +
+                "    public void helper() {\n" +
+                INT_X_EQUALS_ONE +
+                METHOD_CLOSING +
+                AT_TEST +
+                PUBLIC_VOID_TEST_FOO +
+                "        helper();\n" +
+                METHOD_CLOSING +
+                CLOSING_BRACE;
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, FOO_TEST_JAVA), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        // Count occurrences of globalSliceStart (should be 1, only in testFoo)
+        int globalSliceStartCount = countOccurrences(instrumented, GLOBAL_SLICE_START);
+        assertEquals("Should have exactly 1 globalSliceStart (only in testFoo)", 1, globalSliceStartCount);
+
+        // Both methods should have R.inc() calls
+        assertTrue("Should have R.inc() calls for both methods", instrumented.contains(INC_CALL_PATTERN));
+    }
+
+    @Test
+    public void testTestMethodGlobalSliceEndContainsMethodName() throws Exception {
+        String sourceCode = IMPORT_JUNIT_TEST +
+                "public class MethodNameTest {\n" +
+                AT_TEST +
+                "    public void myTestMethod() {\n" +
+                INT_X_EQUALS_ONE +
+                METHOD_CLOSING +
+                CLOSING_BRACE;
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "MethodNameTest.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        assertTrue("globalSliceEnd should contain exact method name", instrumented.contains("\"myTestMethod\""));
+    }
+
+    @Test
+    public void testTestMethodGlobalSliceEndContainsSnifferReference() throws Exception {
+        String sourceCode = IMPORT_JUNIT_TEST +
+                "public class SnifferTest {\n" +
+                AT_TEST +
+                "    public void testSniffer() {\n" +
+                INT_X_EQUALS_ONE +
+                METHOD_CLOSING +
+                CLOSING_BRACE;
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "SnifferTest.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        assertTrue("globalSliceEnd should contain TEST_NAME_SNIFFER reference",
+                instrumented.contains("TEST_NAME_SNIFFER.getTestName()"));
+    }
+
+    private int countOccurrences(String text, String substring) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(substring, index)) != -1) {
+            count++;
+            index += substring.length();
+        }
+        return count;
     }
 
     /**

@@ -61,6 +61,7 @@ import org.openclover.core.spi.lang.LanguageConstruct;
 import org.openclover.core.util.UnicodeEncodingWriter;
 import org.openclover.runtime.CloverNames;
 import org.openclover.runtime.api.CloverException;
+import org_openclover_runtime.CoverageRecorder;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -182,6 +183,9 @@ public class SessionAwareInstrumenter {
                     session, config, recorderPrefix, config.getInitString(), session.getVersion(), contextStore);
             visitor.initializeDisabledRanges(cu);
             visitor.visit(cu, insertions);
+
+            // Add deferred recorder insertion now that maxDataIndex is finalized
+            visitor.addDeferredRecorderInsertion(insertions);
 
             // Apply insertions to source code
             String instrumented = SourceRewriter.rewrite(sourceCode, insertions);
@@ -309,6 +313,11 @@ public class SessionAwareInstrumenter {
         private final List<DisabledRange> disabledRanges;
         private final ContextStore contextStore;
         private int lambdaCounter;
+
+        private int recorderLine = -1;
+        private int recorderColumn = -1;
+        private boolean recorderInsertBefore = true;
+        private int recorderInsertionOrder = 0;
 
         SessionAwareVisitor(InstrumentationSession session, JavaInstrumentationConfig config,
                            String recorderPrefix, String initString, long registryVersion, ContextStore contextStore) {
@@ -618,7 +627,11 @@ public class SessionAwareInstrumenter {
                             LanguageConstruct.Builtin.METHOD);
 
                     // Inject method entry tracking using session-allocated index
-                    injectMethodEntry(body.get(), insertions, methodInfo.getDataIndex());
+                    if (isTest) {
+                        injectTestMethodWrapper(body.get(), insertions, methodInfo.getDataIndex(), name);
+                    } else {
+                        injectMethodEntry(body.get(), insertions, methodInfo.getDataIndex());
+                    }
                 }
             }
 
@@ -985,20 +998,39 @@ public class SessionAwareInstrumenter {
          * Can be used for classes and enums.
          */
         private void injectRecorder(TypeDeclaration<?> typeDecl, List<Insertion> insertions) {
-            String recorderCode = generateRecorderCode();
-
             if (!typeDecl.getMembers().isEmpty()) {
                 Optional<Position> firstMemberPos = typeDecl.getMembers().get(0).getBegin();
                 if (firstMemberPos.isPresent()) {
                     Position pos = firstMemberPos.get();
-                    insertions.add(Insertion.before(pos.line, pos.column, recorderCode, 0));
+                    recorderLine = pos.line;
+                    recorderColumn = pos.column;
+                    recorderInsertBefore = true;
+                    recorderInsertionOrder = 0;
                 }
             } else {
                 Optional<Position> endPos = typeDecl.getEnd();
                 if (endPos.isPresent()) {
                     Position pos = endPos.get();
-                    insertions.add(Insertion.before(pos.line, pos.column, recorderCode, 0));
+                    recorderLine = pos.line;
+                    recorderColumn = pos.column;
+                    recorderInsertBefore = true;
+                    recorderInsertionOrder = 0;
                 }
+            }
+        }
+
+        void addDeferredRecorderInsertion(List<Insertion> insertions) {
+            if (recorderLine < 0) {
+                return;
+            }
+
+            int maxDataIndex = session.getCurrentFileMaxIndex();
+            String recorderCode = generateRecorderCode(maxDataIndex);
+
+            if (recorderInsertBefore) {
+                insertions.add(Insertion.before(recorderLine, recorderColumn, recorderCode, recorderInsertionOrder));
+            } else {
+                insertions.add(Insertion.after(recorderLine, recorderColumn, recorderCode, recorderInsertionOrder));
             }
         }
 
@@ -1087,6 +1119,39 @@ public class SessionAwareInstrumenter {
         }
 
         /**
+         * Injects global slice tracking wrapper for test methods.
+         * Wraps the method body with try-catch-finally that calls globalSliceStart/globalSliceEnd.
+         */
+        private void injectTestMethodWrapper(BlockStmt body, List<Insertion> insertions, int methodDataIndex, String methodName) {
+            Optional<Position> bodyStart = body.getBegin();
+            Optional<Position> bodyEnd = body.getEnd();
+
+            if (!bodyStart.isPresent() || !bodyEnd.isPresent()) {
+                return;
+            }
+
+            Position startPos = bodyStart.get();
+            Position endPos = bodyEnd.get();
+
+            if (!isInstrumentationEnabled(startPos.line) || !isInstrumentationEnabled(endPos.line)) {
+                return;
+            }
+
+            // Build the opening insertion: Throwable __clov_t_=null;RECORDER.globalSliceStart(...);try{RECORDER.inc(N);
+            String openingCode = "Throwable __clov_t_=null;" +
+                    recorderPrefix + ".globalSliceStart(getClass().getName()," + methodDataIndex + ");try{" +
+                    recorderPrefix + INC_PREFIX + methodDataIndex + INC_SUFFIX;
+
+            // Build the closing insertion: }catch(Throwable __clov_e_){__clov_t_=__clov_e_;throw __clov_e_;}finally{RECORDER.globalSliceEnd(...)}
+            String closingCode = "}catch(Throwable __clov_e_){__clov_t_=__clov_e_;throw __clov_e_;}finally{" +
+                    recorderPrefix + ".globalSliceEnd(getClass().getName(),\"" + methodName + "\"," +
+                    CloverNames.CLOVER_TEST_NAME_SNIFFER + ".getTestName()," + methodDataIndex + ",__clov_t_==null?1:0,__clov_t_);}";
+
+            insertions.add(Insertion.after(startPos.line, startPos.column, openingCode, 10));
+            insertions.add(Insertion.before(endPos.line, endPos.column, closingCode, 5));
+        }
+
+        /**
          * Instruments a statement by registering it with the session and inserting R.inc(N).
          * Always registers the statement (even in CLOVER:OFF regions) so it appears in the coverage model,
          * but only inserts the instrumentation code when enabled.
@@ -1168,13 +1233,25 @@ public class SessionAwareInstrumenter {
         /**
          * Generates the static recorder inner class code including lambdaInc method.
          */
-        private String generateRecorderCode() {
+        private String generateRecorderCode(int maxDataIndex) {
             RecorderCodeGenerator.RecorderConfig cfg = new RecorderCodeGenerator.RecorderConfig();
             cfg.recorderBase = extractRecorderBase();
             cfg.recorderSuffix = extractRecorderSuffix();
             cfg.initString = initString;
             cfg.registryVersion = registryVersion;
             cfg.areLambdasSupported = true;
+
+            cfg.recorderCfg = CoverageRecorder.getConfigBits(
+                    config.getFlushPolicy(),
+                    config.getFlushInterval(),
+                    false,
+                    false,
+                    !config.isSliceRecording());
+
+            cfg.maxDataIndex = maxDataIndex;
+            cfg.distributedConfig = config.getDistributedConfigString();
+            cfg.profiles = config.getProfiles();
+
             return RecorderCodeGenerator.generate(cfg);
         }
 
