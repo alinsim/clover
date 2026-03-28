@@ -328,6 +328,39 @@ public class SessionAwareInstrumenterTest {
         assertTrue(ASSERT_AT_LEAST_ONE_STATEMENT, metrics.getNumStatements() >= 1);
     }
 
+    @Test
+    public void testRecorderContainsTrackerClass() throws Exception {
+        String sourceCode = "import java.io.InputStream;\nimport java.io.FileInputStream;\n"
+                + "public class WithTry { void m() throws Exception { try (InputStream is = new FileInputStream(\"f\")) { is.read(); } } }";
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "WithTry.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+        session.exitFile();
+        session.close();
+
+        String instrumented = output.toString();
+
+        // The recorder MUST contain the Tracker inner class so that
+        // try-with-resources __CLR.Tracker references compile
+        assertTrue("Recorder must contain Tracker class definition",
+                instrumented.contains("static final class Tracker implements AutoCloseable"));
+        assertTrue("Recorder must contain Tracker constructor",
+                instrumented.contains("Tracker(int idx)"));
+        assertTrue("Recorder must contain Tracker close method",
+                instrumented.contains("public void close()"));
+
+        // The try-with-resources must reference the Tracker
+        assertTrue("Try-with-resources must use Tracker",
+                instrumented.contains(".Tracker __CLR_resource_"));
+    }
+
     /**
      * Creates a test configuration for instrumentation.
      */

@@ -59,8 +59,6 @@ import org.openclover.core.spi.lang.LanguageConstruct;
 import org.openclover.core.util.UnicodeEncodingWriter;
 import org.openclover.runtime.CloverNames;
 import org.openclover.runtime.api.CloverException;
-import org_openclover_runtime.Clover;
-import org_openclover_runtime.CoverageRecorder;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -90,9 +88,6 @@ import java.util.Optional;
  */
 public class SessionAwareInstrumenter {
 
-    private static final String JAVA_LANG_PREFIX = "java.lang.";
-    private static final String QUOTE = "\"";
-    private static final String BACKSLASH = "\\";
 
     /**
      * Instruments a single Java source file using JavaParser, registering all
@@ -1164,50 +1159,13 @@ public class SessionAwareInstrumenter {
          * Generates the static recorder inner class code including lambdaInc method.
          */
         private String generateRecorderCode() {
-            String recorderBase = extractRecorderBase();
-            String recorderSuffix = extractRecorderSuffix();
-
-            StringBuilder sb = new StringBuilder();
-            // Static recorder class
-            sb.append("public static class ").append(recorderBase).append("{");
-            sb.append("public static ").append(CoverageRecorder.class.getName()).append(" ").append(recorderSuffix).append(";");
-            sb.append("static{");
-            sb.append(recorderSuffix).append("=").append(Clover.class.getName()).append(".getNullRecorder();");
-            sb.append("try{").append(recorderSuffix).append("=").append(Clover.class.getName()).append(".getRecorder(");
-            sb.append(QUOTE).append(escapeJavaString(initString)).append(QUOTE).append(",");
-            sb.append(registryVersion).append("L,0L,0,null,null);");
-            sb.append("}catch(").append(JAVA_LANG_PREFIX).append("Throwable t){}");
-            sb.append("}}");
-
-            // Lambda proxy method (at top-level class scope for proper interface access)
-            sb.append(generateLambdaIncMethod(recorderBase, recorderSuffix, JAVA_LANG_PREFIX));
-
-            // Test sniffer field
-            sb.append("public static final org_openclover_runtime.TestNameSniffer ");
-            sb.append("__CLR_TEST_NAME_SNIFFER=org_openclover_runtime.TestNameSniffer.NULL_INSTANCE;");
-            return sb.toString();
-        }
-
-        /**
-         * Generates the lambdaInc proxy method for wrapping lambda expressions.
-         * Must be at top-level class scope (not inside __CLR) to access package-private interfaces.
-         */
-        private String generateLambdaIncMethod(String recorderBase, String recorderSuffix, String javaLangPrefix) {
-            String recorderRef = recorderBase + "." + recorderSuffix;
-            return "@" + javaLangPrefix + "SuppressWarnings(\"unchecked\") " +
-                    "public static <I, T extends I> I lambdaInc(final int i,final T l,final int si){" +
-                    javaLangPrefix + "reflect.InvocationHandler h=" +
-                    "new " + javaLangPrefix + "reflect.InvocationHandler(){" +
-                    "public " + javaLangPrefix + "Object invoke(" +
-                    javaLangPrefix + "Object p," + javaLangPrefix + "reflect.Method m," +
-                    javaLangPrefix + "Object[] a) throws Throwable{" +
-                    recorderRef + ".inc(i);" +
-                    recorderRef + ".inc(si);" +
-                    "try{return m.invoke(l,a);}catch(" + javaLangPrefix + "reflect.InvocationTargetException e){" +
-                    "throw e.getCause()!=null?e.getCause():" +
-                    "new RuntimeException(\"OpenClover failed to invoke instrumented lambda\",e);" +
-                    "}}};return (I)" + javaLangPrefix + "reflect.Proxy.newProxyInstance(l.getClass().getClassLoader(),l.getClass().getInterfaces(),h);" +
-                    "}";
+            RecorderCodeGenerator.RecorderConfig cfg = new RecorderCodeGenerator.RecorderConfig();
+            cfg.recorderBase = extractRecorderBase();
+            cfg.recorderSuffix = extractRecorderSuffix();
+            cfg.initString = initString;
+            cfg.registryVersion = registryVersion;
+            cfg.areLambdasSupported = true;
+            return RecorderCodeGenerator.generate(cfg);
         }
 
         private String extractRecorderBase() {
@@ -1218,13 +1176,6 @@ public class SessionAwareInstrumenter {
         private String extractRecorderSuffix() {
             int lastDot = recorderPrefix.lastIndexOf('.');
             return lastDot >= 0 ? recorderPrefix.substring(lastDot + 1) : "R";
-        }
-
-        private static String escapeJavaString(String s) {
-            if (s == null) {
-                return "";
-            }
-            return s.replace(BACKSLASH, BACKSLASH + BACKSLASH).replace(QUOTE, BACKSLASH + QUOTE);
         }
 
         /**
