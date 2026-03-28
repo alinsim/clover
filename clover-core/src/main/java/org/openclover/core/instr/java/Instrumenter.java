@@ -1,7 +1,5 @@
 package org.openclover.core.instr.java;
 
-import antlr.RecognitionException;
-import antlr.TokenStreamException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.openclover.core.api.instrumentation.ConcurrentInstrumentationException;
@@ -141,14 +139,6 @@ public class Instrumenter {
             FileUtils.fileCopy(instrTmp, instr);
             log.verbose("Processed '" + srcFile + "' to '" + instr + "'");
             return instr;
-        } catch (RecognitionException e) {
-            log.error("Recognition error in " + srcFile);
-            log.error(e.getMessage());
-            throw new CloverException(e);
-        } catch (TokenStreamException e) {
-            log.error("Token stream error in " + srcFile);
-            log.error(e.getMessage());
-            throw new CloverException(e);
         } catch (UnsupportedEncodingException e) {
             log.error(e.getMessage());
             throw new CloverException(e);
@@ -174,7 +164,7 @@ public class Instrumenter {
      */
     public FileStructureInfo instrument(final @NotNull InstrumentationSource in, final @NotNull Writer out,
                                         final @Nullable String fileEncoding)
-            throws TokenStreamException, IOException, RecognitionException, CloverException {
+            throws IOException, CloverException {
         // JavaParser-based instrumentation (replaces ANTLR pipeline)
         return instrumentWithJavaParser(in, out, fileEncoding);
     }
@@ -189,7 +179,7 @@ public class Instrumenter {
      */
     public CharSequence instrument(final @NotNull File orig, final @NotNull CharSequence charSequence,
                                    final @Nullable String fileEncoding)
-            throws TokenStreamException, IOException, RecognitionException, CloverException {
+            throws IOException, CloverException {
 
         final StringWriter stringWriter = new StringWriter();
         final InstrumentationSource charSequenceSource = new CharSequenceInstrumentationSource(orig, charSequence);

@@ -105,7 +105,7 @@ class CloverTestFixture {
             reg.setStartColumn(i)
             Modifiers mods = new Modifiers()
             mods.setMask(1)
-            MethodSignature signature = new MethodSignature(null, null, null, null, mods, "method" + i, null, "void", null, null)
+            MethodSignature signature = new MethodSignature("method" + i, null, "void", null, null, mods)
             clazz.mthds[i] = session.enterMethod(con, reg, signature, false)
             session.exitMethod(0, reg.getStartColumn())
         }

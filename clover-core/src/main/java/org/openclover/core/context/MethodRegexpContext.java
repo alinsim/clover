@@ -1,6 +1,5 @@
 package org.openclover.core.context;
 
-import org.openclover.core.instr.java.FileStructureInfo;
 import org.openclover.core.io.tags.TaggedDataInput;
 import org.openclover.core.io.tags.TaggedDataOutput;
 import org.openclover.core.io.tags.TaggedPersistent;
@@ -59,14 +58,6 @@ public class MethodRegexpContext extends RegexpContext implements TaggedPersiste
 
     public int getMaxAggregatedStatements() {
         return maxAggregatedStatements;
-    }
-
-    public boolean matches(FileStructureInfo.MethodMarker methodMarker) {
-        return super.matches(methodMarker.getNormalisedSignature())
-                && methodMarker.getMethod().getMetrics().getComplexity() <= maxComplexity
-                && methodMarker.getMethod().getStatements().size() <= maxStatements
-                && methodMarker.getMethod().getAggregatedComplexity() <= maxAggregatedComplexity
-                && methodMarker.getMethod().getAggregatedStatementCount() <= maxAggregatedStatements;
     }
 
     @Override

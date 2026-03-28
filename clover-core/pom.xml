@@ -173,36 +173,6 @@
                 <version>3.0.0</version>
                 <executions>
                     <execution>
-                        <id>generate-java-lexer-g</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>java</goal>
-                        </goals>
-                        <configuration>
-                            <mainClass>antlr.Tool</mainClass>
-                            <arguments>
-                                <argument>-o</argument>
-                                <argument>${project.build.directory}/src-generated/org/openclover/core/instr/java</argument>
-                                <argument>${project.basedir}/src/main/java/org/openclover/core/instr/java/java-lexer.g</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>generate-java-parser-g</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>java</goal>
-                        </goals>
-                        <configuration>
-                            <mainClass>antlr.Tool</mainClass>
-                            <arguments>
-                                <argument>-o</argument>
-                                <argument>${project.build.directory}/src-generated/org/openclover/core/instr/java</argument>
-                                <argument>${project.basedir}/src/main/java/org/openclover/core/instr/java/java.g</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                    <execution>
                         <id>generate-column-g</id>
                         <phase>generate-sources</phase>
                         <goals>
@@ -230,44 +200,6 @@
                                 <argument>${project.build.directory}/src-generated/clover/org/codehaus/groovy/antlr/parser</argument>
                                 <argument>${project.basedir}/src/main/java/clover/org/codehaus/groovy/antlr/parser/groovy.g</argument>
                             </arguments>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <!-- fix parsers generated from grammars because we use a repacked ANTLR library as well as
-                 override implementations of idents and string literals -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>correct-antlr-sources</id>
-                        <phase>process-sources</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                        <configuration>
-                            <target>
-                                <replace dir="${project.build.directory}/src-generated" token="public final void mIDENT"
-                                         value="public void mIDENT">
-                                    <include name="**/JavaLexer.java"/>
-                                </replace>
-                                <replace dir="${project.build.directory}/src-generated" token="public final void mIDENT"
-                                         value="public /*final*/ void mIDENT">
-                                    <include name="**/JavaLexer.java"/>
-                                </replace>
-                                <replace dir="${project.build.directory}/src-generated"
-                                         token="public final void mSTRING_LITERAL"
-                                         value="public /*final*/ void mSTRING_LITERAL">
-                                    <include name="**/JavaLexer.java"/>
-                                </replace>
-                                <replace dir="${project.build.directory}/src-generated"
-                                         token="public final void mCHAR_LITERAL"
-                                         value="public /*final*/ void mCHAR_LITERAL">
-                                    <include name="**/JavaLexer.java"/>
-                                </replace>
-                            </target>
                         </configuration>
                     </execution>
                 </executions>

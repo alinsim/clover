@@ -1,6 +1,5 @@
 package org.openclover.core.reporters.html;
 
-import antlr.TokenStreamException;
 import org.openclover.core.BitSetCoverageProvider;
 import org.openclover.core.CloverDatabase;
 import org.openclover.core.CoverageData;
@@ -288,7 +287,7 @@ public class RenderFileAction implements Callable {
         return fcopy;
     }
 
-    private void insertLineInfos(FileInfo fcopy, List[] testLineInfo) throws TokenStreamException {
+    private void insertLineInfos(FileInfo fcopy, List[] testLineInfo) throws Exception {
         new SourceRenderHelper(database, reportConfig, renderingHelper)
             .insertLineInfosForFile(fcopy, velocity, getContextSet(), "&#160;", testLineInfo);
     }

@@ -169,7 +169,7 @@ class MethodMatcher extends TypeSafeMatcher<TestDetector> {
             modifiers = Modifiers.createFrom(0, new AnnotationImpl(annotation))
         }
 
-        MethodSignature signature = new MethodSignature(null, null, null, tags, modifiers,
+        MethodSignature signature = new MethodSignature(tags, modifiers,
                 methodName, null, returnType, null, null)
 
         return testDetector.isMethodMatch(sourceContext, JavaMethodContext.createFor(signature))

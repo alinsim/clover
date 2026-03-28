@@ -3,15 +3,12 @@ package org.openclover.core.registry.entities;
 import org.jetbrains.annotations.NotNull;
 import org.openclover.core.api.registry.Annotation;
 import org.openclover.core.api.registry.MethodSignatureInfo;
-import org.openclover.core.instr.java.CloverToken;
-import org.openclover.core.instr.java.TokenListUtil;
 import org.openclover.core.io.tags.TaggedDataInput;
 import org.openclover.core.io.tags.TaggedDataOutput;
 import org.openclover.core.io.tags.TaggedPersistent;
 
 import java.io.DataOutput;
 import java.io.IOException;
-import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -29,6 +26,8 @@ public class MethodSignature implements TaggedPersistent, MethodSignatureInfo {
     private static final String[] EMPTY_STRINGS = new String[]{};
 
     private static final Parameter[] EMPTY_PARAMS = new Parameter[]{};
+
+    private static final String COMMA_SEPARATOR = ", ";
 
     private Map<String, List<String>> tags = newHashMap();
 
@@ -57,27 +56,10 @@ public class MethodSignature implements TaggedPersistent, MethodSignatureInfo {
     }
 
     public MethodSignature(String name, String typeParams, String returnType, Parameter[] parameters, String[] throwsTypes, Modifiers modifiers) {
-        this(null, null, null, name, typeParams, returnType, parameters, throwsTypes);
-        this.modifiers = modifiers;
+        this(new HashMap<>(), modifiers, name, typeParams, returnType, parameters, throwsTypes);
     }
 
-    public MethodSignature(CloverToken firstToken, CloverToken nameToken, CloverToken lastToken, String name,
-                           String typeParams, String returnType, Parameter[] parameters, String[] throwsTypes) {
-        this(firstToken, nameToken, lastToken, new HashMap<>(),
-                new Modifiers(), name, typeParams, returnType, parameters, throwsTypes);
-    }
-
-    public MethodSignature(CloverToken firstToken, CloverToken nameToken, CloverToken lastToken, Map<String, List<String>> tags,
-                           Modifiers modifiers, String name, String typeParams, String returnType, Parameter[] parameters, String[] throwsTypes) {
-        if ((firstToken != null) || (lastToken != null)) {
-            //Make renamed method private so in classes annotated with @org.testng.annoations.Test
-            //the renamed method is not counted as a test (thus doubly counting test methods)
-            long mods = modifiers.getMask();
-            mods &= ~(Modifier.PUBLIC | Modifier.PROTECTED);
-            mods |= Modifier.PRIVATE;
-            normSeqPrefix = ModifierExt.toString(mods) + (typeParams != null ? " " + typeParams : "") + (returnType != null ? " " + returnType : "") + " ";
-            normSeqSuffix = TokenListUtil.getNormalisedSequence(nameToken.getNext(), lastToken);
-        }
+    public MethodSignature(Map<String, List<String>> tags, Modifiers modifiers, String name, String typeParams, String returnType, Parameter[] parameters, String[] throwsTypes) {
         this.tags = flyweightIfEmptyFor(tags);
         this.modifiers = modifiers;
         this.name = name;
@@ -272,7 +254,7 @@ public class MethodSignature implements TaggedPersistent, MethodSignatureInfo {
             throwsTypes[i] = in.readUTF();
         }
 
-        return new MethodSignature(null, null, null, tags, modifiers, name, typeParam, returnType, parameters, throwsTypes);
+        return new MethodSignature(tags, modifiers, name, typeParam, returnType, parameters, throwsTypes);
     }
 
 
@@ -300,7 +282,7 @@ public class MethodSignature implements TaggedPersistent, MethodSignatureInfo {
         if (hasThrowsTypes()) {
             builder.append(" throws "); // exceptions
             for (String e: getThrowsTypes()) {
-                builder.append(e).append(", ");
+                builder.append(e).append(COMMA_SEPARATOR);
             }
             removeLastTwo(builder);
         }
@@ -310,7 +292,7 @@ public class MethodSignature implements TaggedPersistent, MethodSignatureInfo {
         builder.append("("); // parameters
         if (hasParams()) {
             for (Parameter param : getParameters()) {
-                builder.append(param.getType()).append(" ").append(param.getName()).append(", ");
+                builder.append(param.getType()).append(" ").append(param.getName()).append(COMMA_SEPARATOR);
             }
             if (getParameters().length > 0) {
                 removeLastTwo(builder);

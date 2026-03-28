@@ -1,20 +1,15 @@
 package org.openclover.core.reporters.html.source.java
 
-import antlr.TokenStreamException
 import org.junit.Test
 import org.openclover.core.util.UnicodeDecodingReader
 
-import static org.hamcrest.CoreMatchers.anyOf
-import static org.hamcrest.CoreMatchers.equalTo
-import static org.hamcrest.MatcherAssert.assertThat
 import static org.junit.Assert.assertEquals
 import static org.junit.Assert.assertTrue
-import static org.junit.Assert.fail
 
 class JavaTokenTraverserTest {
 
     @Test
-    void testNewLineHandlingInComments() throws TokenStreamException {
+    void testNewLineHandlingInComments() throws Exception {
         List<Chunk> chunks = [
             new Comment("/**"),
             new NewLine(),
@@ -29,7 +24,7 @@ class JavaTokenTraverserTest {
     }
 
     @Test
-    void testBasicSourceRendering() throws TokenStreamException {
+    void testBasicSourceRendering() throws Exception {
         List<Chunk> chunks = [
             new Keyword("package"),
             new Chunk(" "),
@@ -83,38 +78,32 @@ class JavaTokenTraverserTest {
 
     @Test
     void testThatNewLineInvalidatesStartOfStringLiteral() {
+        // JavaParser gracefully handles malformed source by falling back to plain text rendering
+        // The old ANTLR-based implementation threw exceptions, but graceful degradation is better
+        // for a reporting tool that should not crash on syntax errors.
         List<Chunk> chunks = [
             new Chunk("\""),
             new NewLine(),
             new Chunk("\"")
         ]
-        try {
-            // newline character is not allowed inside " "
-            checkRenderingAgainstChunkList("\"\n\"", chunks)
-            checkRenderingAgainstChunkList("\"\r\"", chunks)
-            fail("Should not have reached here with an invalid token.")
-        } catch (TokenStreamException e) {
-            assertThat(e.getMessage(), equalTo("unexpected char: '\"'"))
-        }
+        // newline character is not allowed inside " " - JavaParser detects this as a parse error
+        // and falls back to plain text rendering
+        checkRenderingAgainstChunkList("\"\n\"", chunks)
+        checkRenderingAgainstChunkList("\"\r\"", chunks)
     }
 
     @Test
     void testThatNewLineInvalidatesStartOfCharacterLiteral() {
+        // JavaParser gracefully handles malformed source by falling back to plain text rendering
         List<Chunk> chunks = [
             new Chunk("'"),
             new NewLine(),
             new Chunk("'")
         ]
-        try {
-            // newline character is not allowed inside ' '
-            checkRenderingAgainstChunkList("'\n'", chunks)
-            checkRenderingAgainstChunkList("'\r'", chunks)
-            fail("Should not have reached here with an invalid token.")
-        } catch (TokenStreamException e) {
-            assertThat(e.getMessage(), anyOf(
-                    equalTo("unexpected char: 0xA"),
-                    equalTo("unexpected char: 0xD")))
-        }
+        // newline character is not allowed inside ' ' - JavaParser detects this as a parse error
+        // and falls back to plain text rendering
+        checkRenderingAgainstChunkList("'\n'", chunks)
+        checkRenderingAgainstChunkList("'\r'", chunks)
     }
 
     @Test
@@ -125,7 +114,7 @@ class JavaTokenTraverserTest {
                 new StringLiteral("\"\u0001\uF31E\"")
             ]
             checkRenderingAgainstChunkList(sunChunks)
-        } catch (TokenStreamException ex) {
+        } catch (Exception ex) {
             fail(ex.getMessage())
         }
     }
@@ -143,13 +132,13 @@ class JavaTokenTraverserTest {
                 new StringLiteral("\"\uDCCC\uDFFF\""),
             ]
             checkRenderingAgainstChunkList(invalidChunks)
-        } catch (TokenStreamException ex) {
+        } catch (Exception ex) {
             fail(ex.getMessage())
         }
     }
 
     @Test
-    void testCCD339() throws TokenStreamException {
+    void testCCD339() throws Exception {
         List<Chunk> chunks = [
             new Comment("/**"),
             new NewLine(),
@@ -209,11 +198,11 @@ class JavaTokenTraverserTest {
         checkRenderingAgainstChunkList(chunks)
     }
 
-    private void checkRenderingAgainstChunkList(final List<Chunk> chunks) throws TokenStreamException {
+    private void checkRenderingAgainstChunkList(final List<Chunk> chunks) throws Exception {
         checkRenderingAgainstChunkList(null, chunks)
     }
 
-    private void checkRenderingAgainstChunkList(String src, final List<Chunk> chunks) throws TokenStreamException {
+    private void checkRenderingAgainstChunkList(String src, final List<Chunk> chunks) throws Exception {
         final boolean [] endReached = [ false ]
 
         JavaSourceListener renderer = new JavaSourceListener() {

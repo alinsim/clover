@@ -49,10 +49,10 @@ class AggregateTestDetectorTest {
 
         spec2.setMethodPattern(Pattern.compile("test.*"))
         spec1.setMethodReturnTypePattern(Pattern.compile("void"))
-        MethodSignature nonMatch = new MethodSignature(null, null, null, null, mods,  "nonMatchingMethod", null, "void", null, null)
+        MethodSignature nonMatch = new MethodSignature("nonMatchingMethod", null, "void", null, null, mods)
         assertFalse(andSpec.isMethodMatch(null, JavaMethodContext.createFor(nonMatch)))
 
-        MethodSignature match = new MethodSignature(null, null, null, null, mods,  "testMatchingMethod", null, "void", null, null)
+        MethodSignature match = new MethodSignature("testMatchingMethod", null, "void", null, null, mods)
         assertTrue(andSpec.isMethodMatch(null, JavaMethodContext.createFor(match)))
 
     }
@@ -73,13 +73,13 @@ class AggregateTestDetectorTest {
 
         spec2.setMethodPattern(Pattern.compile("test.*"))
         spec1.setMethodReturnTypePattern(Pattern.compile("void"))
-        MethodSignature nonMatch = new MethodSignature(null, null, null, null, mods,  "nonMatchingMethod", null, "int", null, null)
+        MethodSignature nonMatch = new MethodSignature("nonMatchingMethod", null, "int", null, null, mods)
         assertFalse(orSpec.isMethodMatch(null, JavaMethodContext.createFor(nonMatch)))
 
-        MethodSignature match = new MethodSignature(null, null, null, null, mods,  "nonMatchingMethod", null, "void", null, null)
+        MethodSignature match = new MethodSignature("nonMatchingMethod", null, "void", null, null, mods)
         assertTrue(orSpec.isMethodMatch(null, JavaMethodContext.createFor(match)))
 
-        MethodSignature match2 = new MethodSignature(null, null, null, null, mods,  "testMatchingMethod", null, "void", null, null)
+        MethodSignature match2 = new MethodSignature("testMatchingMethod", null, "void", null, null, mods)
         assertTrue(orSpec.isMethodMatch(null, JavaMethodContext.createFor(match2)))
     }
 

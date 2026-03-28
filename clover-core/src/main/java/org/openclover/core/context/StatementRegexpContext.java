@@ -1,6 +1,5 @@
 package org.openclover.core.context;
 
-import org.openclover.core.instr.java.FileStructureInfo;
 import org.openclover.core.io.tags.TaggedDataInput;
 import org.openclover.core.io.tags.TaggedDataOutput;
 import org.openclover.core.io.tags.TaggedPersistent;
@@ -19,10 +18,6 @@ public class StatementRegexpContext extends RegexpContext implements TaggedPersi
 
     public StatementRegexpContext(int index, String name, Pattern pattern) {
         super(index, name, pattern);
-    }
-
-    public boolean matches(FileStructureInfo.Marker marker) {
-        return super.matches(marker.getNormalisedString());
     }
 
     @Override

@@ -1,15 +1,31 @@
 package org.openclover.core.reporters.html.source.java;
 
-import antlr.Token;
-import antlr.TokenStreamException;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.JavaToken;
+import com.github.javaparser.ParseResult;
+import com.github.javaparser.ParserConfiguration;
+import com.github.javaparser.ast.CompilationUnit;
 import org.openclover.core.api.registry.FileInfo;
-import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
-import org.openclover.core.instr.java.JavaLexer;
-import org.openclover.core.instr.java.JavaTokenTypes;
-import org.openclover.core.registry.entities.FullFileInfo;
 import org.openclover.core.reporters.html.source.SourceTraverser;
 
 import java.io.Reader;
+
+import static com.github.javaparser.GeneratedJavaParserConstants.CHARACTER_LITERAL;
+import static com.github.javaparser.GeneratedJavaParserConstants.DOT;
+import static com.github.javaparser.GeneratedJavaParserConstants.EOF;
+import static com.github.javaparser.GeneratedJavaParserConstants.IDENTIFIER;
+import static com.github.javaparser.GeneratedJavaParserConstants.IMPORT;
+import static com.github.javaparser.GeneratedJavaParserConstants.JAVADOC_COMMENT;
+import static com.github.javaparser.GeneratedJavaParserConstants.MULTI_LINE_COMMENT;
+import static com.github.javaparser.GeneratedJavaParserConstants.OLD_MAC_EOL;
+import static com.github.javaparser.GeneratedJavaParserConstants.PACKAGE;
+import static com.github.javaparser.GeneratedJavaParserConstants.SEMICOLON;
+import static com.github.javaparser.GeneratedJavaParserConstants.SINGLE_LINE_COMMENT;
+import static com.github.javaparser.GeneratedJavaParserConstants.SPACE;
+import static com.github.javaparser.GeneratedJavaParserConstants.STRING_LITERAL;
+import static com.github.javaparser.GeneratedJavaParserConstants.TEXT_BLOCK_LITERAL;
+import static com.github.javaparser.GeneratedJavaParserConstants.UNIX_EOL;
+import static com.github.javaparser.GeneratedJavaParserConstants.WINDOWS_EOL;
 
 /**
  * Traverses a Java token stream, informing a JavaSourceListener about
@@ -17,83 +33,104 @@ import java.io.Reader;
  */
 public final class JavaTokenTraverser implements SourceTraverser<JavaSourceListener> {
     @Override
-    public void traverse(Reader sourceReader, FileInfo fileInfo, JavaSourceListener listener) throws TokenStreamException {
-        JavaLexer lexer = new JavaLexer(sourceReader, new JavaInstrumentationConfig());
+    public void traverse(Reader sourceReader, FileInfo fileInfo, JavaSourceListener listener) throws Exception {
+        // Read source from Reader into String (JavaParser needs String input)
+        StringBuilder sb = new StringBuilder();
+        char[] buf = new char[8192];
+        int n;
+        while ((n = sourceReader.read(buf)) != -1) {
+            sb.append(buf, 0, n);
+        }
+        String source = sb.toString();
 
-        Token token = lexer.nextToken();
-        Token prev = token;
-        StringBuilder currentChunk = new StringBuilder();
+        // Configure JavaParser
+        ParserConfiguration config = new ParserConfiguration();
+        config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
+        config.setStoreTokens(true);
+        JavaParser parser = new JavaParser(config);
+
+        // Parse source
+        ParseResult<CompilationUnit> result = parser.parse(source);
+
+        listener.onStartDocument();
+
+        if (!result.getResult().isPresent()) {
+            // Fall back to plain text rendering on parse failure
+            String[] lines = source.split("\r\n|\r|\n", -1);
+            for (int i = 0; i < lines.length; i++) {
+                if (i > 0) {
+                    listener.onNewLine();
+                }
+                if (!lines[i].isEmpty()) {
+                    listener.onChunk(lines[i]);
+                }
+            }
+            listener.onEndDocument();
+            return;
+        }
+
+        CompilationUnit cu = result.getResult().get();
+
+        // State machine for package/import tracking
         StringBuilder accumName = new StringBuilder();
         boolean gatherPkgIdent = false;
         boolean gatherImportIdent = false;
 
-        listener.onStartDocument();
-        while (prev != null && JavaTokenTypes.EOF != prev.getType()) {
-           if (token != null && token.getType() == prev.getType()) {
-                currentChunk.append(token.getText());
-            } else {
-                // render the previous chunk
-                if (JavaTokenTypes.WS == prev.getType()) {
-                    // handle whitespace with possible newlines
-                    processWhiteSpace(currentChunk.toString(), listener);
+        // Iterate tokens
+        if (cu.getTokenRange().isPresent()) {
+            for (JavaToken token : cu.getTokenRange().get()) {
+                int kind = token.getKind();
+                String text = token.getText();
+
+                if (kind == EOF) {
+                    break;
                 }
-                else if (JavaTokenTypes.STRING_LITERAL == prev.getType()) {
-                    listener.onStringLiteral(currentChunk.toString());
-                }
-                else if (JavaTokenTypes.SL_COMMENT == prev.getType()) {
-                    listener.onCommentChunk(currentChunk.toString());
-                }
-                else if (JavaTokenTypes.ML_COMMENT == prev.getType()) {
-                    //multiline comment parsing for javadoc tags
-                    processComment(currentChunk.toString(), listener);
-                }
-                else if (JavaKeywords.contains(prev.getType())) {
-                    listener.onKeyword(currentChunk.toString());
-                    gatherPkgIdent = (prev.getType() == JavaTokenTypes.PACKAGE);
-                    gatherImportIdent = (prev.getType() == JavaTokenTypes.IMPORT);
-                }
-                else {
+
+                // Process token by kind
+                if (kind == SPACE) {
+                    listener.onChunk(text);
+                } else if (kind == UNIX_EOL || kind == WINDOWS_EOL || kind == OLD_MAC_EOL) {
+                    listener.onNewLine();
+                } else if (kind == SINGLE_LINE_COMMENT) {
+                    listener.onCommentChunk(text);
+                } else if (kind == MULTI_LINE_COMMENT || kind == JAVADOC_COMMENT) {
+                    processComment(text, listener);
+                } else if (kind == STRING_LITERAL || kind == TEXT_BLOCK_LITERAL || kind == CHARACTER_LITERAL) {
+                    listener.onStringLiteral(text);
+                } else if (token.getCategory() == JavaToken.Category.KEYWORD) {
+                    listener.onKeyword(text);
+                    gatherPkgIdent = (kind == PACKAGE);
+                    gatherImportIdent = (kind == IMPORT);
+                } else if (kind == IDENTIFIER) {
                     if (gatherPkgIdent || gatherImportIdent) {
-                        if (JavaTokenTypes.SEMI == prev.getType()) {
-                            if (gatherImportIdent) {
-                                listener.onImport(accumName.toString());
-                            }
-                            accumName = new StringBuilder();
-                            gatherPkgIdent = false;
-                            gatherImportIdent = false;
-                            listener.onChunk(currentChunk.toString());
+                        accumName.append(text);
+                        if (gatherPkgIdent) {
+                            listener.onPackageSegment(accumName.toString(), text);
+                        } else {
+                            listener.onImportSegment(accumName.toString(), text);
                         }
-                        else if (JavaTokenTypes.DOT == prev.getType()) {
-                            accumName.append(currentChunk);
-                            listener.onChunk(currentChunk.toString());
-                        }
-                        else if (JavaTokenTypes.IDENT == prev.getType()) {
-                            accumName.append(currentChunk);
-                            if (gatherPkgIdent) {
-                                listener.onPackageSegment(accumName.toString(), currentChunk.toString());
-                            }
-                            else {
-                                listener.onImportSegment(accumName.toString(), currentChunk.toString());
-                            }
-                        }
-                        else {
-                            listener.onChunk(currentChunk.toString());
-                        }
+                    } else {
+                        listener.onIdentifier(text);
                     }
-                    else if (JavaTokenTypes.IDENT == prev.getType()) {
-                        // TODO: this doesn't handle fully qualified Idents
-                        listener.onIdentifier(currentChunk.toString());
+                } else if (kind == DOT) {
+                    if (gatherPkgIdent || gatherImportIdent) {
+                        accumName.append(text);
                     }
-                    else {
-                        listener.onChunk(currentChunk.toString());
+                    listener.onChunk(text);
+                } else if (kind == SEMICOLON) {
+                    listener.onChunk(text);
+                    if (gatherImportIdent) {
+                        listener.onImport(accumName.toString());
                     }
+                    accumName = new StringBuilder();
+                    gatherPkgIdent = false;
+                    gatherImportIdent = false;
+                } else {
+                    listener.onChunk(text);
                 }
-                currentChunk = new StringBuilder();
-                currentChunk.append(token.getText());
             }
-            prev = token;
-            token = lexer.nextToken();
         }
+
         listener.onEndDocument();
     }
 

@@ -86,10 +86,10 @@ class TestSpecTest {
     @Test
     void testIsMethodMatchOnMethodSig() {
         spec.setMethodPattern(Pattern.compile(".*methodName.*"))
-        MethodSignature sig = new MethodSignature(null, null, null, "nonMatchingMethod", null, "void", null, null)
-        
+        MethodSignature sig = new MethodSignature("nonMatchingMethod", null, "void", null, null, new Modifiers())
+
         assertFalse(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
-        sig = new MethodSignature(null, null, null,"methodName", null, "void", null, null)
+        sig = new MethodSignature("methodName", null, "void", null, null, new Modifiers())
         assertTrue(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
     }
 
@@ -97,7 +97,7 @@ class TestSpecTest {
     void testIsMethodMatchOnAnnotation() {
         spec.setMethodAnnotationPattern(Pattern.compile("ThisIsATest"))
         mods.addAnnotation(new AnnotationImpl("ThisIsNotATest"))
-        MethodSignature sig = new MethodSignature(null, null, null, null, mods, "nonMatchingMethod", null, "void", null, null)
+        MethodSignature sig = new MethodSignature("nonMatchingMethod", null, "void", null, null, mods)
 
         assertFalse(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
 
@@ -112,30 +112,30 @@ class TestSpecTest {
         value.add("value")
 
         // test with null tags             //note: return type cannot be null
-        MethodSignature sig = new MethodSignature(null, null, null, null, null, null,  null, "void", null, null)
+        MethodSignature sig = new MethodSignature([:], null, null, null, "void", null, null)
         assertFalse(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
 
         // empty tags
-        sig = new MethodSignature(null, null, null, tags, null, null,  null, "void", null, null)
+        sig = new MethodSignature(tags, null, null, null, "void", null, null)
         assertFalse(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
 
         // unmatching tag
         tags.put("unmatching", value)
-        sig = new MethodSignature(null, null, null, tags, null, null, null, "void", null, null)
+        sig = new MethodSignature(tags, null, null, null, "void", null, null)
         assertFalse(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
 
         // unmatching and matching tag
         tags.put("testng.test", value)
-        sig = new MethodSignature(null, null, null, tags, null, null, null, "void", null, null)
+        sig = new MethodSignature(tags, null, null, null, "void", null, null)
         assertTrue(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
     }
 
     @Test
     void testIsMethodMatchOnReturnType() {
         spec.setMethodReturnTypePattern(Pattern.compile("void"))
-        MethodSignature sig = new MethodSignature(null, null, null, null, mods, "methodReturningAString", null, "String", null, null)
+        MethodSignature sig = new MethodSignature("methodReturningAString", null, "String", null, null, mods)
         assertFalse(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
-        sig = new MethodSignature(null, null, null, null, mods, "methodReturningVoid", null, "void", null, null);        
+        sig = new MethodSignature("methodReturningVoid", null, "void", null, null, mods)
         assertTrue(spec.isMethodMatch(null, JavaMethodContext.createFor(sig)))
 
         mods.addAnnotation(new AnnotationImpl("TestAnnotation"))
