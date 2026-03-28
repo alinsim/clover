@@ -60,7 +60,7 @@
         <module>clover-all</module>
         <module>clover-ant-zip</module>
         <module>clover-eclipse</module>
-        <module>clover-idea</module>
+        <!-- clover-idea is now Gradle-based, built separately -->
         <module>tests-functional</module>
     </modules>
     <profiles>
@@ -70,7 +70,6 @@
             <modules>
                 <module>clover-core-libs</module>
                 <module>clover-eclipse-libs</module>
-                <module>clover-idea-libs</module>
             </modules>
         </profile>
     </profiles>
