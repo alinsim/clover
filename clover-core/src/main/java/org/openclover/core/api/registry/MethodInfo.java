@@ -163,6 +163,15 @@ public interface MethodInfo extends
     boolean isTest();
 
     /**
+     * Returns whether this method was discovered via bytecode scanning (Phase 2 hybrid instrumentation)
+     * rather than source instrumentation (Phase 1). Generated methods include Lombok-generated
+     * getters/setters/equals/hashCode, compiler-generated bridge methods, record accessors, etc.
+     *
+     * @return boolean true if method was discovered from bytecode, false if from source
+     */
+    boolean isGenerated();
+
+    /**
      * Name of the test associated with a method. Some test frameworks can declare a name of the test using annotations
      * or javadoc tags, so that later the test name and not the original method name is used in reporting.
      * <p/>

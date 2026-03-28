@@ -53,6 +53,7 @@ public class FullMethodInfo extends FullElementInfo<BasicElementInfo>
     private final MethodSignature signature;
     private final boolean isTest;
     private final boolean isLambda;
+    private boolean isGenerated;
 
     /** Name of the method */
     private final String name;
@@ -181,6 +182,15 @@ public class FullMethodInfo extends FullElementInfo<BasicElementInfo>
     @Override
     public boolean isLambda() {
         return isLambda;
+    }
+
+    @Override
+    public boolean isGenerated() {
+        return isGenerated;
+    }
+
+    public void setGenerated(boolean generated) {
+        this.isGenerated = generated;
     }
 
     @Override
