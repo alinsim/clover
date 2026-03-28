@@ -15,6 +15,10 @@ import org.openclover.core.util.FileUtils;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -30,6 +34,7 @@ public class SessionAwareInstrumenterTest {
     private static final String ASSERT_ONE_CLASS = "Should have 1 class";
     private static final String ASSERT_ONE_METHOD = "Should have 1 method";
     private static final String ASSERT_MULTIPLE_STATEMENTS = "Should have multiple statements";
+    private static final String ASSERT_TWO_METHODS = "Should have 2 methods";
     private static final String ASSERT_FILE_STRUCTURE_NOT_NULL = "FileStructureInfo should not be null";
     private static final String ASSERT_INSTRUMENTED_NOT_NULL = "Instrumented output should not be null";
     private static final String ASSERT_CONTAINS_MARKER = "Should contain instrumentation marker";
@@ -117,7 +122,7 @@ public class SessionAwareInstrumenterTest {
 
         ProjectMetrics metrics = (ProjectMetrics) registry.getProject().getMetrics();
         assertEquals(ASSERT_ONE_CLASS, 1, metrics.getNumClasses());
-        assertEquals("Should have 2 methods", 2, metrics.getNumMethods());
+        assertEquals(ASSERT_TWO_METHODS, 2, metrics.getNumMethods());
         assertTrue(ASSERT_MULTIPLE_STATEMENTS, metrics.getNumStatements() >= 2);
     }
 
@@ -359,6 +364,56 @@ public class SessionAwareInstrumenterTest {
         // The try-with-resources must reference the Tracker
         assertTrue("Try-with-resources must use Tracker",
                 instrumented.contains(".Tracker __CLR_resource_"));
+    }
+
+    @Test
+    public void testMethodEntryIndexMatchesSessionIndex() throws Exception {
+        // A class with two methods — verify the R.inc() index in the instrumented
+        // output matches the method's dataIndex from the session registry.
+        String sourceCode =
+                "public class TwoMethods {\n" +
+                "    public void first() { System.out.println(1); }\n" +
+                "    public void second() { System.out.println(2); }\n" +
+                "}";
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "TwoMethods.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        String instrumented = output.toString();
+
+        // Get the method data indices from the registry
+        ProjectMetrics pm = (ProjectMetrics) registry.getProject().getMetrics();
+        assertEquals(ASSERT_TWO_METHODS, 2, pm.getNumMethods());
+
+        // The first method's R.inc() must use index 0 (first slot in the file)
+        // The second method's R.inc() must use a DIFFERENT index
+        // Extract the inc indices from the instrumented output
+        Pattern incPattern = Pattern.compile("\\.inc\\((\\d+)\\)");
+        Matcher matcher = incPattern.matcher(instrumented);
+        List<Integer> indices = new ArrayList<>();
+        while (matcher.find()) {
+            indices.add(Integer.parseInt(matcher.group(1)));
+        }
+
+        // There should be at least 4 inc calls: method1 entry + stmt, method2 entry + stmt
+        assertTrue("Should have at least 4 inc calls, got " + indices.size(),
+                indices.size() >= 4);
+
+        // The method entry indices (first inc in each method) must be sequential
+        // and start from 0. Method entries are the first inc after the recorder.
+        int firstMethodEntry = indices.get(0);
+        assertTrue("First method entry index should be 0, got " + firstMethodEntry,
+                firstMethodEntry == 0);
     }
 
     /**

@@ -41,6 +41,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.openclover.core.api.instrumentation.InstrumentationSession;
 import org.openclover.core.api.registry.FileInfo;
+import org.openclover.core.api.registry.MethodInfo;
 import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
 import org.openclover.core.cfg.instr.java.SourceLevel;
 import org.openclover.core.context.ContextSetImpl;
@@ -605,7 +606,7 @@ public class SessionAwareInstrumenter {
                     // Match method against context patterns
                     ContextSetImpl methodContext = matchMethodContexts(methodDecl);
 
-                    session.enterMethod(
+                    MethodInfo methodInfo = session.enterMethod(
                             methodContext,
                             region,
                             sig,
@@ -615,8 +616,8 @@ public class SessionAwareInstrumenter {
                             complexity,
                             LanguageConstruct.Builtin.METHOD);
 
-                    // Inject method entry tracking
-                    injectMethodEntry(body.get(), insertions);
+                    // Inject method entry tracking using session-allocated index
+                    injectMethodEntry(body.get(), insertions, methodInfo.getDataIndex());
                 }
             }
 
@@ -646,7 +647,7 @@ public class SessionAwareInstrumenter {
 
                 FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
 
-                session.enterMethod(
+                MethodInfo ctorInfo = session.enterMethod(
                         new ContextSetImpl(),
                         region,
                         sig,
@@ -656,7 +657,7 @@ public class SessionAwareInstrumenter {
                         complexity,
                         LanguageConstruct.Builtin.METHOD);
 
-                injectConstructorEntry(body, insertions);
+                injectConstructorEntry(body, insertions, ctorInfo.getDataIndex());
             }
 
             super.visit(ctorDecl, insertions);
@@ -847,7 +848,7 @@ public class SessionAwareInstrumenter {
                 FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
 
                 // Register lambda as a method with isLambda=true
-                session.enterMethod(
+                MethodInfo lambdaInfo = session.enterMethod(
                         new ContextSetImpl(),
                         region,
                         sig,
@@ -859,13 +860,13 @@ public class SessionAwareInstrumenter {
 
                 if (body instanceof BlockStmt) {
                     // Block lambda: insert inc after opening brace (like method entry)
-                    injectMethodEntry((BlockStmt) body, insertions);
+                    injectMethodEntry((BlockStmt) body, insertions, lambdaInfo.getDataIndex());
                     ((BlockStmt) body).accept(this, insertions);
                 } else {
                     // Expression lambda: wrap with lambdaInc() in safe contexts only.
                     // Block rewriting doesn't work — expression lambdas have different
                     // type-checking rules than block lambdas in Java.
-                    wrapWithLambdaIncSession(lambda, insertions);
+                    wrapWithLambdaIncSession(lambda, insertions, lambdaInfo.getDataIndex());
                 }
             }
 
@@ -884,10 +885,10 @@ public class SessionAwareInstrumenter {
                 MethodSignature sig = new MethodSignature(refName);
                 FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
 
-                session.enterMethod(new ContextSetImpl(), region, sig, false, null, true, 1,
+                MethodInfo refInfo = session.enterMethod(new ContextSetImpl(), region, sig, false, null, true, 1,
                         LanguageConstruct.Builtin.METHOD);
 
-                wrapWithLambdaIncSession(methodRef, insertions);
+                wrapWithLambdaIncSession(methodRef, insertions, refInfo.getDataIndex());
             }
 
             super.visit(methodRef, insertions);
@@ -915,7 +916,7 @@ public class SessionAwareInstrumenter {
          * Wraps an expression with lambdaInc() using session-allocated indices.
          * Only wraps in safe contexts (variable initializer, assignment).
          */
-        private void wrapWithLambdaIncSession(Expression expr, List<Insertion> insertions) {
+        private void wrapWithLambdaIncSession(Expression expr, List<Insertion> insertions, int methodDataIndex) {
             Optional<Position> start = expr.getBegin();
             Optional<Position> end = expr.getEnd();
             if (!start.isPresent() || !end.isPresent() || !isInstrumentationEnabled(start.get().line)) {
@@ -928,10 +929,9 @@ public class SessionAwareInstrumenter {
             FullStatementInfo stmtInfo = session.addStatement(
                     new ContextSetImpl(), stmtRegion, 0, LanguageConstruct.Builtin.STATEMENT);
 
-            int methodIndex = session.getCurrentOffsetFromFile() - 2;
             int stmtIndex = stmtInfo.getDataIndex();
             String recorderBase = extractRecorderBase();
-            String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
+            String prefix = LAMBDA_INC_PREFIX + methodDataIndex + ",";
             String suffix = "," + stmtIndex + ")";
             insertions.add(Insertion.before(start.get().line, start.get().column, prefix, 12));
             insertions.add(Insertion.after(end.get().line, end.get().column, suffix, 12));
@@ -1044,7 +1044,7 @@ public class SessionAwareInstrumenter {
         /**
          * Injects method entry tracking using session-allocated index.
          */
-        private void injectMethodEntry(BlockStmt body, List<Insertion> insertions) {
+        private void injectMethodEntry(BlockStmt body, List<Insertion> insertions, int methodDataIndex) {
             Optional<Position> bodyStart = body.getBegin();
             if (!bodyStart.isPresent()) {
                 return;
@@ -1055,10 +1055,8 @@ public class SessionAwareInstrumenter {
                 return;
             }
 
-            // The session already allocated an index when we called enterMethod
-            // We need to use the current offset which was incremented
-            int index = session.getCurrentOffsetFromFile() - 1;
-            String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+            // Use the exact index allocated by session.enterMethod()
+            String incCode = recorderPrefix + INC_PREFIX + methodDataIndex + INC_SUFFIX;
             insertions.add(Insertion.after(pos.line, pos.column, incCode, 10));
         }
 
@@ -1067,7 +1065,7 @@ public class SessionAwareInstrumenter {
          * super() or this() call. Java does not allow statements before the
          * constructor delegation call without --enable-preview.
          */
-        private void injectConstructorEntry(BlockStmt body, List<Insertion> insertions) {
+        private void injectConstructorEntry(BlockStmt body, List<Insertion> insertions, int methodDataIndex) {
             if (!body.getBegin().isPresent()) {
                 return;
             }
@@ -1077,15 +1075,14 @@ public class SessionAwareInstrumenter {
                 if (first.isExplicitConstructorInvocationStmt()) {
                     Optional<Position> end = first.getEnd();
                     if (end.isPresent() && isInstrumentationEnabled(end.get().line)) {
-                        int index = session.getCurrentOffsetFromFile() - 1;
-                        String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                        String incCode = recorderPrefix + INC_PREFIX + methodDataIndex + INC_SUFFIX;
                         insertions.add(Insertion.after(end.get().line, end.get().column, incCode, 10));
                     }
                     return;
                 }
             }
 
-            injectMethodEntry(body, insertions);
+            injectMethodEntry(body, insertions, methodDataIndex);
         }
 
         /**
