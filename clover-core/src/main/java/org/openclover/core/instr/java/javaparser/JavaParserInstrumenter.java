@@ -536,9 +536,37 @@ public class JavaParserInstrumenter {
                 return;
             }
 
+            // Skip statements inside switch expression arrow cases — can't insert
+            // statements before expressions in "case X -> expr" form
+            if (isInsideSwitchExpressionArrowCase(stmt)) {
+                return;
+            }
+
             int index = indexCounter.getAndIncrement();
             String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
             insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
+        }
+
+        /**
+         * Returns true if the statement is inside a switch expression's arrow case
+         * where inserting a statement would be invalid Java.
+         */
+        /**
+         * Returns true if the statement is inside an arrow-case entry where inserting
+         * an additional statement would be invalid. Arrow syntax (case X -> stmt)
+         * allows only a single statement or expression — inserting R.inc() before it
+         * creates two statements which is invalid. Block cases (case X -> { ... })
+         * are fine because statements go inside the block.
+         */
+        private boolean isInsideSwitchExpressionArrowCase(Statement stmt) {
+            Optional<Node> parent = stmt.getParentNode();
+            if (!parent.isPresent() || !(parent.get() instanceof SwitchEntry)) {
+                return false;
+            }
+            SwitchEntry entry = (SwitchEntry) parent.get();
+            // Arrow cases (EXPRESSION, BLOCK, THROWS_STATEMENT) only allow a single
+            // statement/expression. Only STATEMENT_GROUP (colon-case) allows multiple.
+            return entry.getType() != SwitchEntry.Type.STATEMENT_GROUP;
         }
 
         /**

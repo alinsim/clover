@@ -1024,6 +1024,10 @@ public class SessionAwareInstrumenter {
                 return;
             }
 
+            if (isInsideSwitchExpressionArrowCase(stmt)) {
+                return;
+            }
+
             ContextSetImpl stmtContext = matchStatementContexts(stmt);
             FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
             FullStatementInfo stmtInfo = session.addStatement(
@@ -1217,6 +1221,15 @@ public class SessionAwareInstrumenter {
                 return false;
             }
             return !classDecl.isStatic();
+        }
+
+        private boolean isInsideSwitchExpressionArrowCase(Statement stmt) {
+            Optional<Node> parent = stmt.getParentNode();
+            if (!parent.isPresent() || !(parent.get() instanceof SwitchEntry)) {
+                return false;
+            }
+            SwitchEntry entry = (SwitchEntry) parent.get();
+            return entry.getType() != SwitchEntry.Type.STATEMENT_GROUP;
         }
     }
 }
