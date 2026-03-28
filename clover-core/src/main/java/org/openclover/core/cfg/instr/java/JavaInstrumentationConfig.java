@@ -26,6 +26,9 @@ public class JavaInstrumentationConfig extends InstrumentationConfig {
     /** If true, use JavaParser for instrumentation instead of ANTLR */
     private boolean useJavaParser = true;
 
+    /** If true, run Phase 2 bytecode scanning after compilation to instrument generated methods (Lombok, etc.) */
+    private boolean hybridInstrumentation = false;
+
     /** Used by CloverInstr */
     private File sourceDir;
 
@@ -76,6 +79,14 @@ public class JavaInstrumentationConfig extends InstrumentationConfig {
 
     public void setUseJavaParser(boolean useJavaParser) {
         this.useJavaParser = useJavaParser;
+    }
+
+    public boolean isHybridInstrumentation() {
+        return hybridInstrumentation;
+    }
+
+    public void setHybridInstrumentation(boolean hybridInstrumentation) {
+        this.hybridInstrumentation = hybridInstrumentation;
     }
 
     public void setSourceDir(File sourceDir) {
