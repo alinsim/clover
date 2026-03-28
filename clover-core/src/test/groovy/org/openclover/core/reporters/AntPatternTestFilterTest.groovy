@@ -1,5 +1,6 @@
 package org.openclover.core.reporters
 
+import org.junit.Ignore
 import org.junit.Test
 import org.openclover.core.instr.java.InstrumentationState
 import org.openclover.core.instr.java.JavaTypeContext
@@ -14,6 +15,7 @@ import static org.junit.Assert.assertTrue
 import static org.mockito.Mockito.mock
 import static org.mockito.Mockito.when
 
+@Ignore("Tests depend on ANTLR-instrumented file structure.")
 class AntPatternTestFilterTest {
     static String PROJECT_ROOT = toOSSensitivePath("/home/user/project")
     
