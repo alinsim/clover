@@ -1,0 +1,107 @@
+<idea-plugin>
+    <id>org.openclover.idea</id>
+    <name>OpenClover</name>
+
+    <!-- Platform + Java plugin dependencies -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Application-level service: global config, logging bridge -->
+        <applicationService
+            serviceImplementation="org.openclover.idea.CloverApplicationService"/>
+
+        <!-- Project-level service: per-project coverage state and config -->
+        <projectService
+            serviceImplementation="org.openclover.idea.CloverProjectService"/>
+
+        <!-- Project startup activity: activates coverage on project open -->
+        <postStartupActivity
+            implementation="org.openclover.idea.CloverProjectActivity"/>
+
+        <!-- Coverage tool window -->
+        <toolWindow id="OpenClover"
+                    anchor="bottom"
+                    icon="/icons/svg/clover.svg"
+                    factoryClass="org.openclover.idea.toolwindow.CloverToolWindowFactory"/>
+
+        <!-- Settings panels: Settings → Tools → OpenClover -->
+        <applicationConfigurable
+            id="openclover.global"
+            displayName="OpenClover"
+            groupId="tools"
+            instance="org.openclover.idea.config.CloverGlobalConfigurable"/>
+        <projectConfigurable
+            id="openclover.project"
+            displayName="Project Settings"
+            parentId="openclover.global"
+            instance="org.openclover.idea.config.CloverProjectConfigurable"/>
+
+        <!-- Coverage overlay on project tree files -->
+        <projectViewNodeDecorator
+            implementation="org.openclover.idea.projectview.CoverageProjectViewDecorator"/>
+
+        <!-- Test explorer tool window -->
+        <toolWindow id="OpenClover Tests"
+                    anchor="bottom"
+                    icon="/icons/svg/test.svg"
+                    factoryClass="org.openclover.idea.testexplorer.TestExplorerToolWindowFactory"/>
+
+        <!-- Custom file editors for coverage visualizations -->
+        <!-- Coverage visualization editors -->
+        <fileEditorProvider
+            implementation="org.openclover.idea.report.TreeMapEditorProvider"/>
+        <fileEditorProvider
+            implementation="org.openclover.idea.report.CloudEditorProvider"/>
+    </extensions>
+
+    <actions>
+        <!-- Main action group in the Tools menu -->
+        <group id="OpenClover.MainGroup"
+               text="OpenClover"
+               popup="true"
+               icon="/icons/svg/clover.svg">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+            <action id="OpenClover.RefreshCoverage"
+                    class="org.openclover.idea.actions.RefreshCoverageAction"
+                    text="Refresh Coverage"
+                    description="Reload coverage data from the database"
+                    icon="/icons/svg/refresh.svg"/>
+
+            <action id="OpenClover.ToggleInstrumentation"
+                    class="org.openclover.idea.actions.ToggleInstrumentationAction"
+                    text="Toggle Instrumentation"
+                    description="Enable or disable Clover instrumentation"/>
+
+            <action id="OpenClover.ToggleCoverageDisplay"
+                    class="org.openclover.idea.actions.ToggleCoverageDisplayAction"
+                    text="Toggle Coverage Display"
+                    description="Show or hide coverage data in editors"/>
+
+            <action id="OpenClover.ToggleGutter"
+                    class="org.openclover.idea.actions.ToggleGutterAction"
+                    text="Toggle Gutter Icons"
+                    description="Show or hide coverage gutter icons"/>
+
+            <action id="OpenClover.ToggleAutoRefresh"
+                    class="org.openclover.idea.actions.ToggleAutoRefreshAction"
+                    text="Toggle Auto-Refresh"
+                    description="Enable or disable automatic coverage refresh"/>
+
+            <separator/>
+
+            <action id="OpenClover.CleanCoverage"
+                    class="org.openclover.idea.actions.CleanCoverageAction"
+                    text="Clean Coverage Data"
+                    description="Delete the coverage database"/>
+
+            <separator/>
+
+            <action id="OpenClover.About"
+                    class="org.openclover.idea.actions.AboutAction"
+                    text="About OpenClover"
+                    description="Show OpenClover version information"/>
+        </group>
+    </actions>
+</idea-plugin>
