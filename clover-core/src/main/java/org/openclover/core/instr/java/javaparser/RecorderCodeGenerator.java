@@ -150,7 +150,18 @@ public class RecorderCodeGenerator {
 
         // REC = _REC
         instrString.append(config.recorderSuffix).append("=").append("_").append(config.recorderSuffix).append(";");
-        instrString.append("}}");
+        instrString.append("}");
+
+        // Tracker class for try-with-resources cleanup tracking.
+        // Implements AutoCloseable but close() does NOT declare throws,
+        // so javac doesn't force the enclosing method to handle exceptions.
+        instrString.append("static final class Tracker implements AutoCloseable{");
+        instrString.append("private final int idx;");
+        instrString.append("Tracker(int idx){this.idx=idx;}");
+        instrString.append("@Override public void close(){").append(config.recorderSuffix).append(".inc(idx);}");
+        instrString.append("}");
+
+        instrString.append("}");
 
         // add a lambdaInc() wrapper method for lambdas OUTSIDE the static class - only for java8 or higher
         // This needs to be at top-level class scope so Proxy.newProxyInstance can access package-private interfaces

@@ -341,11 +341,11 @@ public class JavaParserInstrumenterTest {
     }
 
     @Test
-    public void instrumentTryWithResourcesAutoCloseable() {
+    public void instrumentTryWithResourcesTracker() {
         String source = IMPORT_IO_STREAMS + TRY_WITH_RESOURCES_PREFIX + TRY_WITH_RESOURCES_SUFFIX;
         String result = JavaParserInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
-        assertTrue("Should contain AutoCloseable wrapper", result.contains("AutoCloseable __CLR_resource_"));
-        assertTrue("Should contain inc in close method", result.contains("public void close()"));
+        assertTrue("Should contain Tracker resource", result.contains(".Tracker __CLR_resource_"));
+        assertTrue("Should contain Tracker construction", result.contains("new __CLR4_1_100hckkb3w8.Tracker("));
     }
 
     @Test

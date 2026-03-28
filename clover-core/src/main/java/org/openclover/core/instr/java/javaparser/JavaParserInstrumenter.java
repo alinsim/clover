@@ -553,16 +553,17 @@ public class JavaParserInstrumenter {
                     String incCode = recorderPrefix + INC_PREFIX + entryIndex + INC_SUFFIX;
                     insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
 
-                    // Add AutoCloseable wrapper that tracks cleanup
+                    // Add Tracker resource for cleanup tracking.
+                    // Uses __CLR.Tracker (concrete class with non-throwing close())
+                    // instead of raw AutoCloseable (whose close() declares throws Exception).
                     Expression lastResource = stmt.getResources().get(stmt.getResources().size() - 1);
                     Optional<Position> lastResEnd = lastResource.getEnd();
                     if (lastResEnd.isPresent()) {
                         int closeIndex = indexCounter.getAndIncrement();
                         String recorderBase = extractRecorderBase();
-                        String autoCloseCode = ";AutoCloseable __CLR_resource_" + closeIndex +
-                            " = new AutoCloseable(){public void close(){" +
-                            recorderPrefix + INC_PREFIX + closeIndex + INC_SUFFIX + ";}}" ;
-                        insertions.add(Insertion.after(lastResEnd.get().line, lastResEnd.get().column, autoCloseCode, 20));
+                        String trackerCode = ";" + recorderBase + ".Tracker __CLR_resource_" + closeIndex +
+                            " = new " + recorderBase + ".Tracker(" + closeIndex + ")";
+                        insertions.add(Insertion.after(lastResEnd.get().line, lastResEnd.get().column, trackerCode, 20));
                     }
                 }
             }
