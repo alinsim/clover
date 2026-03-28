@@ -4,7 +4,6 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
@@ -43,7 +42,6 @@ import org.openclover.core.instr.java.InstrumentationSource;
 import org.openclover.core.registry.FixedSourceRegion;
 import org.openclover.core.registry.entities.FullStatementInfo;
 import org.openclover.core.registry.entities.MethodSignature;
-import org.openclover.core.registry.entities.ModifierExt;
 import org.openclover.core.registry.entities.Modifiers;
 import org.openclover.core.registry.entities.Parameter;
 import org.openclover.core.spi.lang.LanguageConstruct;
@@ -625,12 +623,13 @@ public class SessionAwareInstrumenter {
                 if (body instanceof BlockStmt) {
                     // Block lambda: insert inc after opening brace (like method entry)
                     injectMethodEntry((BlockStmt) body, insertions);
+                    super.visit(lambda, insertions);
                 } else {
-                    // Expression lambda: wrap with lambdaInc()
+                    // Expression lambda: wrap with lambdaInc() — skip super.visit() to avoid
+                    // inserting R.inc() statements inside the expression body (invalid Java)
                     Optional<Position> lambdaStart = lambda.getBegin();
                     Optional<Position> lambdaEnd = lambda.getEnd();
                     if (lambdaStart.isPresent() && lambdaEnd.isPresent() && isInstrumentationEnabled(lambdaStart.get().line)) {
-                        // Register statement for the lambda body
                         FixedSourceRegion stmtRegion = new FixedSourceRegion(lambdaStart.get().line, lambdaStart.get().column);
                         FullStatementInfo stmtInfo = session.addStatement(
                                 new ContextSetImpl(),
@@ -638,7 +637,7 @@ public class SessionAwareInstrumenter {
                                 0,
                                 LanguageConstruct.Builtin.STATEMENT);
 
-                        int methodIndex = session.getCurrentOffsetFromFile() - 2; // method was registered earlier
+                        int methodIndex = session.getCurrentOffsetFromFile() - 2;
                         int stmtIndex = stmtInfo.getDataIndex();
                         String recorderBase = extractRecorderBase();
                         String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
@@ -646,10 +645,9 @@ public class SessionAwareInstrumenter {
                         insertions.add(Insertion.before(lambdaStart.get().line, lambdaStart.get().column, prefix, 12));
                         insertions.add(Insertion.after(lambdaEnd.get().line, lambdaEnd.get().column, suffix, 12));
                     }
+                    // No super.visit() — lambdaInc already tracks invocation
                 }
             }
-
-            super.visit(lambda, insertions);
 
             if (end.isPresent()) {
                 session.exitMethod(end.get().line, end.get().column);
@@ -925,31 +923,33 @@ public class SessionAwareInstrumenter {
             String name = methodDecl.getNameAsString();
             String returnType = methodDecl.getTypeAsString();
 
-            // Build modifiers including the 'default' keyword for interface default methods
-            // Note: For interface methods, we only include explicit modifiers from the source
-            // JavaParser marks all interface methods as public/abstract implicitly, but we should
-            // only include these if they are explicitly written in the source
             long modMask = 0;
-
-            // Only include public if it's not an interface method or if explicitly specified
-            // For now, check if it's in an interface by looking at parent - but this is tricky
-            // The simplest approach: include explicit modifiers from the AST
-            // JavaParser's modifiers include both explicit and implicit, so we use getModifiers()
-            NodeList<com.github.javaparser.ast.Modifier> explicitMods = methodDecl.getModifiers();
-            for (com.github.javaparser.ast.Modifier mod : explicitMods) {
-                switch (mod.getKeyword()) {
-                    case PUBLIC: modMask |= Modifier.PUBLIC; break;
-                    case PRIVATE: modMask |= Modifier.PRIVATE; break;
-                    case PROTECTED: modMask |= Modifier.PROTECTED; break;
-                    case ABSTRACT: modMask |= Modifier.ABSTRACT; break;
-                    case FINAL: modMask |= Modifier.FINAL; break;
-                    case STATIC: modMask |= Modifier.STATIC; break;
-                    case SYNCHRONIZED: modMask |= Modifier.SYNCHRONIZED; break;
-                    case NATIVE: modMask |= Modifier.NATIVE; break;
-                    case STRICTFP: modMask |= Modifier.STRICT; break;
-                    case DEFAULT: modMask |= ModifierExt.DEFAULT; break;
-                    default: break;
-                }
+            if (methodDecl.isPublic()) {
+                modMask |= Modifier.PUBLIC;
+            }
+            if (methodDecl.isPrivate()) {
+                modMask |= Modifier.PRIVATE;
+            }
+            if (methodDecl.isProtected()) {
+                modMask |= Modifier.PROTECTED;
+            }
+            if (methodDecl.isAbstract()) {
+                modMask |= Modifier.ABSTRACT;
+            }
+            if (methodDecl.isFinal()) {
+                modMask |= Modifier.FINAL;
+            }
+            if (methodDecl.isStatic()) {
+                modMask |= Modifier.STATIC;
+            }
+            if (methodDecl.isSynchronized()) {
+                modMask |= Modifier.SYNCHRONIZED;
+            }
+            if (methodDecl.isNative()) {
+                modMask |= Modifier.NATIVE;
+            }
+            if (methodDecl.isDefault()) {
+                modMask |= 0x80000000L; // DEFAULT modifier bit (not in java.lang.reflect.Modifier)
             }
 
             Modifiers mods = Modifiers.createFrom(modMask, null);

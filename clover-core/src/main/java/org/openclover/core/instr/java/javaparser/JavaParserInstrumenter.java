@@ -55,9 +55,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class JavaParserInstrumenter {
 
-    private static final String JAVA_LANG_PREFIX = "java.lang.";
-    private static final String QUOTE = "\"";
-    private static final String BACKSLASH = "\\";
 
     /**
      * Instruments the given Java source code, adding coverage recording calls.
@@ -335,8 +332,10 @@ public class JavaParserInstrumenter {
             if (body instanceof BlockStmt) {
                 // Block lambda: insert inc after opening brace (like method entry)
                 injectMethodEntry((BlockStmt) body, insertions);
+                super.visit(lambda, insertions);
             } else {
-                // Expression lambda: wrap with lambdaInc()
+                // Expression lambda: wrap with lambdaInc() — skip super.visit() to avoid
+                // inserting R.inc() statements inside the expression body (invalid Java)
                 Optional<Position> lambdaStart = lambda.getBegin();
                 Optional<Position> lambdaEnd = lambda.getEnd();
                 if (lambdaStart.isPresent() && lambdaEnd.isPresent() && isInstrumentationEnabled(lambdaStart.get().line)) {
@@ -348,8 +347,8 @@ public class JavaParserInstrumenter {
                     insertions.add(Insertion.before(lambdaStart.get().line, lambdaStart.get().column, prefix, 12));
                     insertions.add(Insertion.after(lambdaEnd.get().line, lambdaEnd.get().column, suffix, 12));
                 }
+                // No super.visit() — lambdaInc already tracks invocation
             }
-            super.visit(lambda, insertions);
         }
 
         @Override
@@ -491,22 +490,13 @@ public class JavaParserInstrumenter {
          * error handling, version checks, and profile support.
          */
         private String generateRecorderCode() {
-            String recorderBase = extractRecorderBase();
-            String recorderSuffix = extractRecorderSuffix();
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("public static class ").append(recorderBase).append("{");
-            sb.append("public static org_openclover_runtime.CoverageRecorder ").append(recorderSuffix).append(";");
-            sb.append("static{");
-            sb.append(recorderSuffix).append("=org_openclover_runtime.Clover.getNullRecorder();");
-            sb.append("try{").append(recorderSuffix).append("=org_openclover_runtime.Clover.getRecorder(");
-            sb.append(QUOTE).append(escapeJavaString(initString)).append(QUOTE).append(",");
-            sb.append(registryVersion).append("L,0L,0,null,null);");
-            sb.append("}catch(").append(JAVA_LANG_PREFIX).append("Throwable t){}");
-            sb.append("}}");
-            sb.append("public static final org_openclover_runtime.TestNameSniffer ");
-            sb.append("__CLR_TEST_NAME_SNIFFER=org_openclover_runtime.TestNameSniffer.NULL_INSTANCE;");
-            return sb.toString();
+            RecorderCodeGenerator.RecorderConfig config = new RecorderCodeGenerator.RecorderConfig();
+            config.recorderBase = extractRecorderBase();
+            config.recorderSuffix = extractRecorderSuffix();
+            config.initString = initString;
+            config.registryVersion = registryVersion;
+            config.areLambdasSupported = true;
+            return RecorderCodeGenerator.generate(config);
         }
 
         private String extractRecorderBase() {
@@ -519,11 +509,5 @@ public class JavaParserInstrumenter {
             return lastDot >= 0 ? recorderPrefix.substring(lastDot + 1) : "R";
         }
 
-        private static String escapeJavaString(String s) {
-            if (s == null) {
-                return "";
-            }
-            return s.replace(BACKSLASH, BACKSLASH + BACKSLASH).replace(QUOTE, BACKSLASH + QUOTE);
-        }
     }
 }
