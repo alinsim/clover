@@ -52,6 +52,7 @@ import org.openclover.core.instr.java.InstrumentationSource;
 import org.openclover.core.registry.FixedSourceRegion;
 import org.openclover.core.registry.entities.FullStatementInfo;
 import org.openclover.core.registry.entities.MethodSignature;
+import org.openclover.core.registry.entities.ModifierExt;
 import org.openclover.core.registry.entities.Modifiers;
 import org.openclover.core.registry.entities.Parameter;
 import org.openclover.core.spi.lang.LanguageConstruct;
@@ -301,7 +302,6 @@ public class SessionAwareInstrumenter {
     static class SessionAwareVisitor extends VoidVisitorAdapter<List<Insertion>> {
         private static final String INC_PREFIX = ".inc(";
         private static final String INC_SUFFIX = ");";
-        private static final long DEFAULT_MODIFIER_BIT = 0x80000000L;
         private static final String LAMBDA_INC_PREFIX = "lambdaInc(";
 
         private final InstrumentationSession session;
@@ -743,21 +743,16 @@ public class SessionAwareInstrumenter {
 
         @Override
         public void visit(SwitchEntry entry, List<Insertion> insertions) {
-            // Only instrument switch entries in switch STATEMENTS (colon-cases)
-            // Switch EXPRESSION entries (arrow-cases) are handled by visit(SwitchExpr)
-            if (entry.getParentNode().isPresent()) {
-                Node parent = entry.getParentNode().get();
-                // Only instrument if parent is NOT a switch expression
-                if (!(parent instanceof SwitchExpr)) {
+            if (entry.getParentNode().isPresent() && !(entry.getParentNode().get() instanceof SwitchExpr)) {
+                if (entry.getType() == SwitchEntry.Type.STATEMENT_GROUP) {
+                    // Colon-case in switch statement
                     List<Statement> statements = entry.getStatements();
                     if (!statements.isEmpty()) {
-                        Statement firstStmt = statements.get(0);
-                        Optional<Position> pos = firstStmt.getBegin();
-                        if (pos.isPresent()) {
-                            // instrumentStatement now handles CLOVER:OFF internally
-                            instrumentStatement(firstStmt, insertions);
-                        }
+                        instrumentStatement(statements.get(0), insertions);
                     }
+                } else {
+                    // Arrow-case in switch STATEMENT: rewrite to block (no yield)
+                    rewriteArrowExpressionToBlock(entry, insertions, false);
                 }
             }
             super.visit(entry, insertions);
@@ -765,22 +760,77 @@ public class SessionAwareInstrumenter {
 
         @Override
         public void visit(SwitchExpr switchExpr, List<Insertion> insertions) {
+            // Determine if this switch expression needs yield (value is used)
+            boolean needsYield = isUsedAsValue(switchExpr);
+
             // For switch expressions with arrow syntax:
             // - Block cases (case X -> { ... }): instrument after opening brace
-            // - Expression cases (case X -> expr): skip branch instrumentation
+            // - Expression cases (case X -> expr): rewrite to {R.inc(N);yield expr;} or {R.inc(N);expr;}
             for (SwitchEntry entry : switchExpr.getEntries()) {
-                List<Statement> statements = entry.getStatements();
-                if (!statements.isEmpty()) {
-                    Statement firstStmt = statements.get(0);
-                    // Only instrument if it's a block (arrow -> { ... })
-                    // Skip expression cases (arrow -> expr) as we can't insert statements before expressions
-                    if (firstStmt instanceof BlockStmt) {
-                        instrumentBranch(firstStmt, insertions);
+                if (entry.getType() == SwitchEntry.Type.BLOCK) {
+                    // case X -> { ... } — instrument inside the block
+                    List<Statement> statements = entry.getStatements();
+                    if (!statements.isEmpty() && statements.get(0) instanceof BlockStmt) {
+                        instrumentBranch(statements.get(0), insertions);
                     }
+                } else if (entry.getType() == SwitchEntry.Type.EXPRESSION) {
+                    // case X -> expr — rewrite to case X -> {R.inc(N);yield expr;}
+                    rewriteArrowExpressionToBlock(entry, insertions, needsYield);
+                } else if (entry.getType() == SwitchEntry.Type.THROWS_STATEMENT) {
+                    // case X -> throw ... — rewrite to case X -> {R.inc(N);throw ...;}
+                    rewriteArrowExpressionToBlock(entry, insertions, false);
                 }
+                // STATEMENT_GROUP handled by visit(SwitchEntry) for colon cases
             }
             // Recursively visit children for nested statement instrumentation
             super.visit(switchExpr, insertions);
+        }
+
+        private boolean isUsedAsValue(SwitchExpr switchExpr) {
+            // Check if the switch expression's value is being used
+            // (assigned to variable, returned, passed as argument, etc.)
+            Optional<Node> parent = switchExpr.getParentNode();
+            if (!parent.isPresent()) {
+                return false;
+            }
+            Node p = parent.get();
+            // If parent is ExpressionStmt, value is ignored
+            if (p instanceof ExpressionStmt) {
+                return false;
+            }
+            // Otherwise, value is used (VariableDeclarator, ReturnStmt, MethodCallExpr, etc.)
+            return true;
+        }
+
+        private void rewriteArrowExpressionToBlock(SwitchEntry entry, List<Insertion> insertions, boolean needsYield) {
+            List<Statement> statements = entry.getStatements();
+            if (statements.isEmpty()) {
+                return;
+            }
+            Statement stmt = statements.get(0);
+            Optional<Position> stmtStart = stmt.getBegin();
+            Optional<Position> entryEnd = entry.getEnd();
+            if (!stmtStart.isPresent() || !entryEnd.isPresent()) {
+                return;
+            }
+            if (!isInstrumentationEnabled(stmtStart.get().line)) {
+                return;
+            }
+
+            FixedSourceRegion region = new FixedSourceRegion(stmtStart.get().line, stmtStart.get().column);
+            FullStatementInfo stmtInfo = session.addStatement(
+                    new ContextSetImpl(),
+                    region,
+                    1,
+                    LanguageConstruct.Builtin.STATEMENT);
+
+            String incCode = recorderPrefix + INC_PREFIX + stmtInfo.getDataIndex() + INC_SUFFIX;
+
+            String prefix = "{" + incCode + (needsYield ? "yield " : "");
+            String suffix = "}";
+
+            insertions.add(Insertion.before(stmtStart.get().line, stmtStart.get().column, prefix, 15));
+            insertions.add(Insertion.after(entryEnd.get().line, entryEnd.get().column, suffix, 15));
         }
 
         @Override
@@ -1152,7 +1202,11 @@ public class SessionAwareInstrumenter {
             String returnType = methodDecl.getTypeAsString();
 
             long modMask = 0;
-            if (methodDecl.isPublic()) {
+            // Check for explicit modifiers (not implicit)
+            // For interface default methods, public is implicit unless explicitly declared
+            boolean hasExplicitPublic = methodDecl.getModifiers().stream()
+                    .anyMatch(m -> "public".equals(m.getKeyword().asString()));
+            if (hasExplicitPublic) {
                 modMask |= Modifier.PUBLIC;
             }
             if (methodDecl.isPrivate()) {
@@ -1177,14 +1231,17 @@ public class SessionAwareInstrumenter {
                 modMask |= Modifier.NATIVE;
             }
             if (methodDecl.isDefault()) {
-                modMask |= DEFAULT_MODIFIER_BIT;
+                modMask |= ModifierExt.DEFAULT;
             }
 
             Modifiers mods = Modifiers.createFrom(modMask, null);
 
-            // For now, use simple constructor with name, returnType, and modifiers
-            // A full implementation would also extract parameters and type parameters
-            return new MethodSignature(name, "", returnType, new Parameter[0], new String[0], mods);
+            // Extract parameters
+            Parameter[] params = methodDecl.getParameters().stream()
+                    .map(p -> new Parameter(p.getTypeAsString(), p.getNameAsString()))
+                    .toArray(Parameter[]::new);
+
+            return new MethodSignature(name, "", returnType, params, new String[0], mods);
         }
 
         /**
