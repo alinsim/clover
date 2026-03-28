@@ -95,6 +95,11 @@
             <groupId>com.github.javaparser</groupId>
             <artifactId>javaparser-core</artifactId>
         </dependency>
+        <!-- ASM for bytecode scanning (hybrid instrumentation Phase 2) -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+        </dependency>
         <!-- other libraries -->
         <dependency>
             <groupId>edu.umd.cs.mtc</groupId>
