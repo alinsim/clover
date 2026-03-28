@@ -1,6 +1,9 @@
 /out/
 /target/
 /.idea/
+**/.project
+**/.classpath
+**/.settings
 **/*.iws
 **/*.iml
 **/target
