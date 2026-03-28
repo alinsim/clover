@@ -6,7 +6,21 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.stmt.AssertStmt;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.BreakStmt;
+import com.github.javaparser.ast.stmt.ContinueStmt;
+import com.github.javaparser.ast.stmt.DoStmt;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.ast.stmt.ForEachStmt;
+import com.github.javaparser.ast.stmt.ForStmt;
+import com.github.javaparser.ast.stmt.IfStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
+import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.SwitchEntry;
+import com.github.javaparser.ast.stmt.ThrowStmt;
+import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 
 import java.util.ArrayList;
@@ -55,6 +69,7 @@ public class JavaParserInstrumenter {
 
         CoverageInstrumentationVisitor visitor = new CoverageInstrumentationVisitor(
                 recorderPrefix, initString, registryVersion, indexCounter);
+        visitor.initializeDisabledRanges(cu);
         visitor.visit(cu, insertions);
 
         String instrumented = SourceRewriter.rewrite(sourceCode, insertions);
@@ -76,6 +91,7 @@ public class JavaParserInstrumenter {
 
         CoverageInstrumentationVisitor visitor = new CoverageInstrumentationVisitor(
                 recorderPrefix, "", 0L, indexCounter);
+        visitor.initializeDisabledRanges(cu);
         visitor.visit(cu, insertions);
         return indexCounter.get();
     }
@@ -84,10 +100,14 @@ public class JavaParserInstrumenter {
      * Visitor that walks the JavaParser AST and collects coverage instrumentation insertions.
      */
     static class CoverageInstrumentationVisitor extends VoidVisitorAdapter<List<Insertion>> {
+        private static final String INC_PREFIX = ".inc(";
+        private static final String INC_SUFFIX = ");";
+
         private final String recorderPrefix;
         private final String initString;
         private final long registryVersion;
         private final AtomicInteger indexCounter;
+        private final List<DisabledRange> disabledRanges;
 
         CoverageInstrumentationVisitor(String recorderPrefix, String initString,
                                        long registryVersion, AtomicInteger indexCounter) {
@@ -95,6 +115,63 @@ public class JavaParserInstrumenter {
             this.initString = initString;
             this.registryVersion = registryVersion;
             this.indexCounter = indexCounter;
+            this.disabledRanges = new ArrayList<>();
+        }
+
+        /**
+         * Represents a range where instrumentation is disabled (CLOVER:OFF to CLOVER:ON).
+         */
+        private static class DisabledRange {
+            final int startLine;
+            final int endLine;
+
+            DisabledRange(int startLine, int endLine) {
+                this.startLine = startLine;
+                this.endLine = endLine;
+            }
+        }
+
+        /**
+         * Initializes disabled ranges from CLOVER:OFF/ON comments.
+         * Must be called before visiting nodes.
+         */
+        private void initializeDisabledRanges(CompilationUnit cu) {
+            disabledRanges.clear();
+            List<Comment> comments = cu.getAllComments();
+            Integer offLine = null;
+
+            for (Comment comment : comments) {
+                String content = comment.getContent().trim();
+                Optional<Position> beginPos = comment.getBegin();
+
+                if (!beginPos.isPresent()) {
+                    continue;
+                }
+
+                if (content.contains("CLOVER:OFF")) {
+                    offLine = beginPos.get().line;
+                } else if (content.contains("CLOVER:ON") && offLine != null) {
+                    disabledRanges.add(new DisabledRange(offLine, beginPos.get().line));
+                    offLine = null;
+                }
+            }
+
+            // If CLOVER:OFF without matching ON, disable until end of file
+            if (offLine != null) {
+                disabledRanges.add(new DisabledRange(offLine, Integer.MAX_VALUE));
+            }
+        }
+
+        /**
+         * Checks if instrumentation is enabled for the given line.
+         */
+        private boolean isInstrumentationEnabled(int line) {
+            for (DisabledRange range : disabledRanges) {
+                if (line >= range.startLine && line <= range.endLine) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override
@@ -119,6 +196,97 @@ public class JavaParserInstrumenter {
             BlockStmt body = ctorDecl.getBody();
             injectMethodEntry(body, insertions);
             super.visit(ctorDecl, insertions);
+        }
+
+        @Override
+        public void visit(ExpressionStmt stmt, List<Insertion> insertions) {
+            instrumentStatement(stmt, insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(ReturnStmt stmt, List<Insertion> insertions) {
+            instrumentStatement(stmt, insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(ThrowStmt stmt, List<Insertion> insertions) {
+            instrumentStatement(stmt, insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(AssertStmt stmt, List<Insertion> insertions) {
+            instrumentStatement(stmt, insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(BreakStmt stmt, List<Insertion> insertions) {
+            instrumentStatement(stmt, insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(ContinueStmt stmt, List<Insertion> insertions) {
+            instrumentStatement(stmt, insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(IfStmt stmt, List<Insertion> insertions) {
+            // Instrument then branch
+            Statement thenStmt = stmt.getThenStmt();
+            instrumentBranch(thenStmt, insertions);
+
+            // Instrument else branch if present
+            Optional<Statement> elseStmt = stmt.getElseStmt();
+            if (elseStmt.isPresent()) {
+                instrumentBranch(elseStmt.get(), insertions);
+            }
+
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(WhileStmt stmt, List<Insertion> insertions) {
+            instrumentBranch(stmt.getBody(), insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(DoStmt stmt, List<Insertion> insertions) {
+            instrumentBranch(stmt.getBody(), insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(ForStmt stmt, List<Insertion> insertions) {
+            instrumentBranch(stmt.getBody(), insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(ForEachStmt stmt, List<Insertion> insertions) {
+            instrumentBranch(stmt.getBody(), insertions);
+            super.visit(stmt, insertions);
+        }
+
+        @Override
+        public void visit(SwitchEntry entry, List<Insertion> insertions) {
+            // Instrument the first statement in the switch entry
+            List<Statement> statements = entry.getStatements();
+            if (!statements.isEmpty()) {
+                Statement firstStmt = statements.get(0);
+                Optional<Position> pos = firstStmt.getBegin();
+                if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
+                    int index = indexCounter.getAndIncrement();
+                    String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                    insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 15));
+                }
+            }
+            super.visit(entry, insertions);
         }
 
         /**
@@ -154,11 +322,59 @@ public class JavaParserInstrumenter {
                 return;
             }
 
-            int index = indexCounter.getAndIncrement();
             Position pos = bodyStart.get();
+            if (!isInstrumentationEnabled(pos.line)) {
+                return;
+            }
+
+            int index = indexCounter.getAndIncrement();
             // The BlockStmt begins at '{'. Insert our inc() call right after it.
-            String incCode = recorderPrefix + ".inc(" + index + ");";
+            String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
             insertions.add(Insertion.after(pos.line, pos.column, incCode, 10));
+        }
+
+        /**
+         * Instruments a statement by inserting R.inc(N) before it.
+         */
+        private void instrumentStatement(Statement stmt, List<Insertion> insertions) {
+            Optional<Position> pos = stmt.getBegin();
+            if (!pos.isPresent()) {
+                return;
+            }
+
+            if (!isInstrumentationEnabled(pos.get().line)) {
+                return;
+            }
+
+            int index = indexCounter.getAndIncrement();
+            String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+            insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
+        }
+
+        /**
+         * Instruments a branch by inserting R.inc(N) at the start of the branch body.
+         * If the branch is not a block statement, inserts before the statement directly.
+         */
+        private void instrumentBranch(Statement branchBody, List<Insertion> insertions) {
+            Optional<Position> pos = branchBody.getBegin();
+            if (!pos.isPresent()) {
+                return;
+            }
+
+            if (!isInstrumentationEnabled(pos.get().line)) {
+                return;
+            }
+
+            int index = indexCounter.getAndIncrement();
+            String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+
+            if (branchBody instanceof BlockStmt) {
+                // For block statements, insert after the opening brace
+                insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
+            } else {
+                // For single statements, insert before the statement
+                insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 15));
+            }
         }
 
         /**
