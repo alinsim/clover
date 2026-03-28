@@ -1,5 +1,6 @@
 package org.openclover.core.instr.java.javaparser;
 
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
@@ -96,7 +97,9 @@ public class SessionAwareInstrumenter {
             // Read the source code into a string
             String sourceCode = readSource(source);
 
-            // Parse with JavaParser
+            // Configure parser for latest Java and parse
+            StaticJavaParser.getParserConfiguration()
+                    .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
             CompilationUnit cu = StaticJavaParser.parse(sourceCode);
 
             // Extract package name

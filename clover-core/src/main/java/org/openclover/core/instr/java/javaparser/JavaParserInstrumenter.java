@@ -1,5 +1,6 @@
 package org.openclover.core.instr.java.javaparser;
 
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
@@ -64,6 +65,7 @@ public class JavaParserInstrumenter {
      */
     public static String instrument(String sourceCode, String recorderPrefix,
                                      String initString, long registryVersion) {
+        configureParserForLatestJava();
         CompilationUnit cu = StaticJavaParser.parse(sourceCode);
 
         List<Insertion> insertions = new ArrayList<>();
@@ -87,6 +89,7 @@ public class JavaParserInstrumenter {
      * @return number of instrumentation points (method entries, etc.)
      */
     public static int countInstrumentationPoints(String sourceCode, String recorderPrefix) {
+        configureParserForLatestJava();
         CompilationUnit cu = StaticJavaParser.parse(sourceCode);
         List<Insertion> insertions = new ArrayList<>();
         AtomicInteger indexCounter = new AtomicInteger(0);
@@ -96,6 +99,16 @@ public class JavaParserInstrumenter {
         visitor.initializeDisabledRanges(cu);
         visitor.visit(cu, insertions);
         return indexCounter.get();
+    }
+
+    /**
+     * Configures the JavaParser to support the latest available Java language level.
+     * This ensures modern syntax (records, sealed classes, text blocks, pattern matching)
+     * is parsed correctly.
+     */
+    private static void configureParserForLatestJava() {
+        StaticJavaParser.getParserConfiguration()
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
     }
 
     /**
