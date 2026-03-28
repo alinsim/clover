@@ -103,13 +103,13 @@ class TestSourceSetTest extends TestCase {
 
         Map tags = newHashMap()
         tags.put("thisShouldNotMatch", "value")
-        MethodSignature noMatch = new MethodSignature(null, null, null, tags, null, "Test", null, "void", null, null)
+        MethodSignature noMatch = new MethodSignature(tags, null, "Test", null, "void", null, null)
 
         final TestDetector testDetector = testSources.getDetector()
         assertNotNull(testDetector)
         assertFalse(testDetector.isMethodMatch(null, JavaMethodContext.createFor(noMatch)))
         tags.put("testng.test", "value")
-        MethodSignature match = new MethodSignature(null, null, null, tags, null, "Test", null, "void", null, null)
+        MethodSignature match = new MethodSignature(tags, null, "Test", null, "void", null, null)
         assertTrue(testDetector.isMethodMatch(null, JavaMethodContext.createFor(match)))
 
     }
@@ -188,11 +188,11 @@ class TestSourceSetTest extends TestCase {
         assertTrue(testDetector.isTypeMatch(null, new JavaTypeContext(null, mods, "org.openclover.test", "RealTest", null)))
         assertFalse(testDetector.isTypeMatch(null, new JavaTypeContext(null, mods, "org.openclover.test", "XXX", null)))
 
-        MethodSignature noMatch = new MethodSignature(null, null, null, "dontMatch", null, "void", null, null)
-        MethodSignature should = new MethodSignature(null, null, null, "shouldMatch", null, "void", null, null)
-        MethodSignature must = new MethodSignature(null, null, null, "mustMatch", null, "void", null, null)
+        MethodSignature noMatch = new MethodSignature("dontMatch", null, "void", null, null, null)
+        MethodSignature should = new MethodSignature("shouldMatch", null, "void", null, null, null)
+        MethodSignature must = new MethodSignature("mustMatch", null, "void", null, null, null)
         mods.addAnnotation(new AnnotationImpl("Specification"))
-        MethodSignature specification = new MethodSignature(null, null, null, null, mods, "nonMatchingMethodName", null, "void", null, null)
+        MethodSignature specification = new MethodSignature(null, mods, "nonMatchingMethodName", null, "void", null, null)
 
         assertTrue(testDetector.isMethodMatch(null, JavaMethodContext.createFor(should)))
         assertTrue(testDetector.isMethodMatch(null, JavaMethodContext.createFor(must)))
