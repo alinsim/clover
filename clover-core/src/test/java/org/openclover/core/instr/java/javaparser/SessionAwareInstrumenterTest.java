@@ -194,7 +194,8 @@ public class SessionAwareInstrumenterTest {
         ProjectMetrics metrics = (ProjectMetrics) registry.getProject().getMetrics();
         assertEquals(ASSERT_ONE_CLASS, 1, metrics.getNumClasses());
         assertEquals(ASSERT_ONE_METHOD, 1, metrics.getNumMethods());
-        assertTrue("Should have statements for branches", metrics.getNumStatements() >= 3);
+        assertTrue("Should have statements + branches for if/else",
+                metrics.getNumStatements() + metrics.getNumBranches() >= 3);
     }
 
     @Test
@@ -364,6 +365,36 @@ public class SessionAwareInstrumenterTest {
         // The try-with-resources must reference the Tracker
         assertTrue("Try-with-resources must use Tracker",
                 instrumented.contains(".Tracker __CLR_resource_"));
+    }
+
+    @Test
+    public void testBranchesRegisteredAsBranches() throws Exception {
+        String sourceCode =
+                "public class WithBranch {\n" +
+                "    public String check(int x) {\n" +
+                "        if (x > 0) { return \"pos\"; } else { return \"neg\"; }\n" +
+                METHOD_CLOSING +
+                "}";
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "WithBranch.java"), sourceCode);
+
+        SessionAwareInstrumenter.instrument(source, output, session, config, null);
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        ProjectMetrics metrics = (ProjectMetrics) registry.getProject().getMetrics();
+        assertEquals(ASSERT_ONE_CLASS, 1, metrics.getNumClasses());
+        assertEquals(ASSERT_ONE_METHOD, 1, metrics.getNumMethods());
+        // The if/else should register at least 2 branches (then + else)
+        assertTrue("Should have branches registered, got " + metrics.getNumBranches(),
+                metrics.getNumBranches() >= 2);
     }
 
     @Test

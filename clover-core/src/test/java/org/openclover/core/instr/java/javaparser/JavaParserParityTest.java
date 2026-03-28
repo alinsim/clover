@@ -96,7 +96,8 @@ public class JavaParserParityTest {
         assertTrue(SHOULD_CONTAIN_INC_CALLS, result.contains(INC_CALL_STRING));
 
         ProjectMetrics pm = getProjectMetrics();
-        assertTrue("Has statements for branches", pm.getNumStatements() >= 3);
+        assertTrue("Has statements + branches for if/else",
+                pm.getNumStatements() + pm.getNumBranches() >= 3);
     }
 
     @Test

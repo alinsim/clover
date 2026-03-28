@@ -51,6 +51,7 @@ import org.openclover.core.context.StatementRegexpContext;
 import org.openclover.core.instr.java.FileStructureInfo;
 import org.openclover.core.instr.java.InstrumentationSource;
 import org.openclover.core.registry.FixedSourceRegion;
+import org.openclover.core.registry.entities.FullBranchInfo;
 import org.openclover.core.registry.entities.FullStatementInfo;
 import org.openclover.core.registry.entities.MethodSignature;
 import org.openclover.core.registry.entities.ModifierExt;
@@ -1138,20 +1139,18 @@ public class SessionAwareInstrumenter {
                 return;
             }
 
-            // Match statement against context patterns
-            ContextSetImpl stmtContext = matchStatementContexts(branchBody);
-
-            // Always register statement with session for the branch
+            // Register as a BRANCH (not statement) so branch metrics are correct
             FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
-            FullStatementInfo stmtInfo = session.addStatement(
-                    stmtContext,
+            FullBranchInfo branchInfo = session.addBranch(
+                    new ContextSetImpl(),
                     region,
+                    true,
                     0,
-                    LanguageConstruct.Builtin.STATEMENT);
+                    LanguageConstruct.Builtin.BRANCH);
 
             // Only insert instrumentation code if enabled (respects CLOVER:OFF)
             if (isInstrumentationEnabled(pos.get().line)) {
-                int index = stmtInfo.getDataIndex();
+                int index = branchInfo.getDataIndex();
                 String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
 
                 if (branchBody instanceof BlockStmt) {
