@@ -22,7 +22,7 @@
         <!-- Coverage tool window -->
         <toolWindow id="OpenClover"
                     anchor="bottom"
-                    icon="/icons/clover_tny.png"
+                    icon="/icons/svg/clover.svg"
                     factoryClass="org.openclover.idea.toolwindow.CloverToolWindowFactory"/>
 
         <!-- Settings panels: Settings → Tools → OpenClover -->
@@ -44,7 +44,7 @@
         <!-- Test explorer tool window -->
         <toolWindow id="OpenClover Tests"
                     anchor="bottom"
-                    icon="/icons/nodes_junitTestClass.png"
+                    icon="/icons/svg/test.svg"
                     factoryClass="org.openclover.idea.testexplorer.TestExplorerToolWindowFactory"/>
 
         <!-- Custom file editors for coverage visualizations -->
@@ -60,14 +60,14 @@
         <group id="OpenClover.MainGroup"
                text="OpenClover"
                popup="true"
-               icon="/icons/clover_tny.png">
+               icon="/icons/svg/clover.svg">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
 
             <action id="OpenClover.RefreshCoverage"
                     class="org.openclover.idea.actions.RefreshCoverageAction"
                     text="Refresh Coverage"
                     description="Reload coverage data from the database"
-                    icon="/icons/sync.png"/>
+                    icon="/icons/svg/refresh.svg"/>
 
             <action id="OpenClover.ToggleInstrumentation"
                     class="org.openclover.idea.actions.ToggleInstrumentationAction"
