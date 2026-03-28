@@ -90,6 +90,11 @@
             <groupId>org.apache.velocity</groupId>
             <artifactId>velocity</artifactId>
         </dependency>
+        <!-- JavaParser for source-level instrumentation -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+        </dependency>
         <!-- other libraries -->
         <dependency>
             <groupId>edu.umd.cs.mtc</groupId>
@@ -346,6 +351,7 @@
                                     <include>jdom:jdom</include>
                                     <include>org.jfree:jfreechart</include>
                                     <include>org.apache.velocity:velocity</include>
+                                    <include>com.github.javaparser:javaparser-core</include>
                                 </includes>
                             </artifactSet>
                             <filters>
@@ -444,6 +450,12 @@
                                     </excludes>
                                 </filter>
                                 <filter>
+                                    <artifact>com.github.javaparser:javaparser-core</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                    </excludes>
+                                </filter>
+                                <filter>
                                     <artifact>org.apache.velocity:velocity</artifact>
                                     <includes>
                                         <!-- keep all classes from velocity -->
@@ -530,6 +542,13 @@
                                     <shadedPattern>clover.it.unimi.dsi.fastutil</shadedPattern>
                                     <includes>
                                         <include>it.unimi.dsi.fastutil.**</include>
+                                    </includes>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.github.javaparser</pattern>
+                                    <shadedPattern>clover.com.github.javaparser</shadedPattern>
+                                    <includes>
+                                        <include>com.github.javaparser.**</include>
                                     </includes>
                                 </relocation>
                             </relocations>
