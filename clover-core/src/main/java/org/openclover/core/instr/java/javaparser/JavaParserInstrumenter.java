@@ -11,9 +11,11 @@ import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
+import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.stmt.AssertStmt;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
@@ -125,7 +127,7 @@ public class JavaParserInstrumenter {
     static class CoverageInstrumentationVisitor extends VoidVisitorAdapter<List<Insertion>> {
         private static final String INC_PREFIX = ".inc(";
         private static final String INC_SUFFIX = ");";
-        private static final String LAMBDA_INC_PREFIX = ".lambdaInc(";
+        private static final String LAMBDA_INC_PREFIX = "lambdaInc(";
 
         private final String recorderPrefix;
         private final String initString;
@@ -200,10 +202,17 @@ public class JavaParserInstrumenter {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration classDecl, List<Insertion> insertions) {
-            // Inject recorder for all classes and interfaces
-            // Interfaces can have static inner classes since Java 8
-            injectRecorder(classDecl, insertions);
+            if (!classDecl.isInterface() || hasConcreteMembers(classDecl)) {
+                injectRecorder(classDecl, insertions);
+            }
             super.visit(classDecl, insertions);
+        }
+
+        /**
+         * Returns true if the type has any concrete (non-abstract) methods that need instrumentation.
+         */
+        private boolean hasConcreteMembers(ClassOrInterfaceDeclaration classDecl) {
+            return classDecl.getMethods().stream().anyMatch(m -> m.getBody().isPresent());
         }
 
         @Override
@@ -312,18 +321,46 @@ public class JavaParserInstrumenter {
 
         @Override
         public void visit(SwitchEntry entry, List<Insertion> insertions) {
-            // Instrument the first statement in the switch entry
-            List<Statement> statements = entry.getStatements();
-            if (!statements.isEmpty()) {
-                Statement firstStmt = statements.get(0);
-                Optional<Position> pos = firstStmt.getBegin();
-                if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
-                    int index = indexCounter.getAndIncrement();
-                    String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
-                    insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 15));
+            // Only instrument switch entries in switch STATEMENTS (colon-cases)
+            // Switch EXPRESSION entries (arrow-cases) are handled by visit(SwitchExpr)
+            if (entry.getParentNode().isPresent()) {
+                Node parent = entry.getParentNode().get();
+                // Only instrument if parent is NOT a switch expression
+                if (!(parent instanceof SwitchExpr)) {
+                    // Traditional switch statement - instrument the first statement
+                    List<Statement> statements = entry.getStatements();
+                    if (!statements.isEmpty()) {
+                        Statement firstStmt = statements.get(0);
+                        Optional<Position> pos = firstStmt.getBegin();
+                        if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
+                            int index = indexCounter.getAndIncrement();
+                            String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                            insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 15));
+                        }
+                    }
                 }
             }
             super.visit(entry, insertions);
+        }
+
+        @Override
+        public void visit(SwitchExpr switchExpr, List<Insertion> insertions) {
+            // For switch expressions with arrow syntax:
+            // - Block cases (case X -> { ... }): instrument after opening brace
+            // - Expression cases (case X -> expr): skip branch instrumentation
+            for (SwitchEntry entry : switchExpr.getEntries()) {
+                List<Statement> statements = entry.getStatements();
+                if (!statements.isEmpty()) {
+                    Statement firstStmt = statements.get(0);
+                    // Only instrument if it's a block (arrow -> { ... })
+                    // Skip expression cases (arrow -> expr) as we can't insert statements before expressions
+                    if (firstStmt instanceof BlockStmt) {
+                        instrumentBranch(firstStmt, insertions);
+                    }
+                }
+            }
+            // Recursively visit children for nested statement instrumentation
+            super.visit(switchExpr, insertions);
         }
 
         @Override
@@ -341,8 +378,8 @@ public class JavaParserInstrumenter {
                 if (lambdaStart.isPresent() && lambdaEnd.isPresent() && isInstrumentationEnabled(lambdaStart.get().line)) {
                     int methodIndex = indexCounter.getAndIncrement();
                     int stmtIndex = indexCounter.getAndIncrement();
-                    String recorderBase = extractRecorderBase();
-                    String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
+                    // lambdaInc is now at top-level class scope, not inside __CLR inner class
+                    String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
                     String suffix = "," + stmtIndex + ")";
                     insertions.add(Insertion.before(lambdaStart.get().line, lambdaStart.get().column, prefix, 12));
                     insertions.add(Insertion.after(lambdaEnd.get().line, lambdaEnd.get().column, suffix, 12));
@@ -358,8 +395,8 @@ public class JavaParserInstrumenter {
             if (start.isPresent() && end.isPresent() && isInstrumentationEnabled(start.get().line)) {
                 int methodIndex = indexCounter.getAndIncrement();
                 int stmtIndex = indexCounter.getAndIncrement();
-                String recorderBase = extractRecorderBase();
-                String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
+                // lambdaInc is now at top-level class scope, not inside __CLR inner class
+                String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
                 String suffix = "," + stmtIndex + ")";
                 insertions.add(Insertion.before(start.get().line, start.get().column, prefix, 12));
                 insertions.add(Insertion.after(end.get().line, end.get().column, suffix, 12));

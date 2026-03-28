@@ -97,11 +97,6 @@ public class RecorderCodeGenerator {
         // add a field with a static array containing list of profiles
         instrString.append(generateCloverProfilesField(config.profiles));
 
-        // add a lambdaInc() wrapper method for lambdas - only for java8 or higher
-        if (config.areLambdasSupported) {
-            instrString.append(generateLambdaIncMethod(config.recorderSuffix, config.javaLangPrefix));
-        }
-
         // static initialization block
         instrString.append("static{");
 
@@ -157,6 +152,12 @@ public class RecorderCodeGenerator {
         instrString.append(config.recorderSuffix).append("=").append("_").append(config.recorderSuffix).append(";");
         instrString.append("}}");
 
+        // add a lambdaInc() wrapper method for lambdas OUTSIDE the static class - only for java8 or higher
+        // This needs to be at top-level class scope so Proxy.newProxyInstance can access package-private interfaces
+        if (config.areLambdasSupported) {
+            instrString.append(generateLambdaIncMethod(config.recorderBase, config.recorderSuffix, config.javaLangPrefix));
+        }
+
         // add extra test sniffer field
         instrString.append(generateTestSnifferField(config.isSpockTestClass, config.isParameterizedJUnit, config.isJUnit5Parameterized));
 
@@ -201,13 +202,18 @@ public class RecorderCodeGenerator {
 
     /**
      * Returns a string containing declaration of a generic method for wrapping lambda expressions.
+     * This method is generated at top-level class scope (not inside the __CLR inner class) so that
+     * Proxy.newProxyInstance can properly access package-private interfaces.
      *
+     * @param recorderBase     the base name for the recorder class (e.g., "__CLR3_1_600hckkb3w8")
      * @param recorderSuffix   the suffix for the recorder field (typically "R")
      * @param javaLangPrefix   the prefix for java.lang classes
      * @return String code for "lambdaInc"
      */
-    private static String generateLambdaIncMethod(final String recorderSuffix, final String javaLangPrefix) {
+    private static String generateLambdaIncMethod(final String recorderBase, final String recorderSuffix, final String javaLangPrefix) {
         // using variable names as short as possible to compress the code
+        // Note: Since this method is now outside the __CLR inner class, we need to reference R as __CLR.R
+        final String recorderRef = recorderBase + "." + recorderSuffix;
         final StringBuilder str = new StringBuilder()
                 .append(JAVA_LANG_SUPPRESSWARNINGS).append(QUOTE).append("unchecked").append(QUOTE).append(") ")
                 .append(PUBLIC_STATIC).append("<I, T extends I> I ")
@@ -222,9 +228,9 @@ public class RecorderCodeGenerator {
                 .append(javaLangPrefix)
                 .append("Object[] a) ")
                 .append("throws Throwable{")
-                .append(recorderSuffix)
+                .append(recorderRef)
                 .append(".inc(i);")
-                .append(recorderSuffix)
+                .append(recorderRef)
                 .append(".inc(si);")
                 .append("try{return m.invoke(l,a);}catch(").append(JAVA_LANG_REFLECT_INVOCATION_TARGET_EXCEPTION).append(" e){")
                 .append("throw e.getCause()!=null?e.getCause():").append(NEW).append("RuntimeException(").append(QUOTE).append("OpenClover failed to invoke instrumented lambda").append(QUOTE).append(",e);")

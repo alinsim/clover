@@ -57,8 +57,8 @@ abstract class JavaSyntaxCompilationTestBase {
     /** Regular expression for false part of branch coverage: (__CLR_hash_code.R.iget(index)==0&false) */
     protected final String R_IGET_FALSE = "\\(" + R_IGET + "==0\\&false\\)"
 
-    /** Regular expression for lambda:  */
-    protected final String R_LAMBDA_INC_LEFT = "__CLR[a-zA-Z0-9_]+\\.lambdaInc\\([0-9]+,"
+    /** Regular expression for lambda: lambdaInc is now at top-level class scope */
+    protected final String R_LAMBDA_INC_LEFT = "lambdaInc\\([0-9]+,"
     protected final String R_LAMBDA_INC_RIGHT = ",[0-9]+\\)"
 
     /** Regular expression for case expression returning value and returning void */

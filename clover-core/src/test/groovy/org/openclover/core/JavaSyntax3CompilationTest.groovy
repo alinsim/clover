@@ -2,6 +2,7 @@ package org.openclover.core
 
 import org.apache.tools.ant.util.JavaEnvUtils
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Test
 import org.openclover.core.api.registry.ClassInfo
 import org.openclover.core.api.registry.FileInfo
@@ -10,13 +11,14 @@ import org.openclover.core.registry.entities.LineInfo
 
 import static org.junit.Assert.assertEquals
 import static org.junit.Assert.assertNotNull
+
 /**
  * The purpose of this test is to
  * a) make sure the code compiles under JDK1.3 or later
  * b) make sure that when that code is instrumented, it still compiles
  */
+@Ignore("Source levels below Java 8 are no longer supported")
 class JavaSyntax3CompilationTest extends JavaSyntaxCompilationTestBase {
-
     @Before
     void setUp() {
         setUpProject()
@@ -36,11 +38,9 @@ class JavaSyntax3CompilationTest extends JavaSyntaxCompilationTestBase {
     void testInstrumentationAndCompilation_13() throws Exception {
         final File srcDir = new File(mTestcasesSrcDir, "javasyntax1.3")
         instrumentAndCompileSources(srcDir, JavaEnvUtils.JAVA_1_8)
-
         // execute instrumented code
         String[] testCaseMainClasses = [ "simple.ALittleOfEverything" ]
         executeMainClasses(testCaseMainClasses)
-
         // assert metrics
         assertMethodCoverage("simple.ALittleOfEverything", 8, 1)
         assertMethodCoverage("simple.ALittleOfEverything", 16)
@@ -51,16 +51,13 @@ class JavaSyntax3CompilationTest extends JavaSyntaxCompilationTestBase {
     void testColumnAlignment() throws Exception {
         final File srcDir = new File(mTestcasesSrcDir, "javasyntax1.3")
         instrumentAndCompileSources(srcDir, JavaEnvUtils.JAVA_1_8)
-
         String[] testCaseMainClasses = [ "simple.ColumnAlignment" ]
         executeMainClasses(testCaseMainClasses)
         ProjectInfo model = getModel()
         ClassInfo c = model.findClass(testCaseMainClasses[0])
         assertNotNull("no such class " + testCaseMainClasses[0], testCaseMainClasses[0])
-
         //Some of these start/ends are rather unexpected - documenting this as a starting point
         //for future modifications
-
         FileInfo fi = c.getContainingFile()
         LineInfo[] li = fi.getLineInfo(false, false)
         //                 A..............
@@ -70,7 +67,6 @@ class JavaSyntax3CompilationTest extends JavaSyntaxCompilationTestBase {
         assertEquals(14, li[6].getClassStarts()[0].getStartColumn())
         assertEquals(22, li[6].getClassStarts()[0].getEndLine())
         assertEquals(2, li[6].getClassStarts()[0].getEndColumn())
-
         //                           A....
         //8: ^    private static class Inner$
         //    ...B
@@ -78,19 +74,16 @@ class JavaSyntax3CompilationTest extends JavaSyntaxCompilationTestBase {
         assertEquals(23, li[8].getClassStarts()[0].getStartColumn())
         assertEquals(11, li[8].getClassStarts()[0].getEndLine())
         assertEquals(3, li[8].getClassStarts()[0].getEndColumn())
-
         //            A.....B
         //10:^        { int i; i = 0; }$
         assertEquals(5, li[10].getStatements()[0].getStartColumn())
         assertEquals(10, li[10].getStatements()[0].getEndLine())
         assertEquals(11, li[10].getStatements()[0].getEndColumn())
-
         //                   A.....B
         //10:^        { int i; i = 0; }$
         assertEquals(12, li[10].getStatements()[1].getStartColumn())
         assertEquals(10, li[10].getStatements()[1].getEndLine())
         assertEquals(18, li[10].getStatements()[1].getEndColumn())
-
         //      A.....................................
         //13:^    static void main(String[] args)$
         //    ...B
@@ -98,30 +91,25 @@ class JavaSyntax3CompilationTest extends JavaSyntaxCompilationTestBase {
         assertEquals(2, li[13].getMethodStarts()[0].getStartColumn())
         assertEquals(21, li[13].getMethodStarts()[0].getEndLine())
         assertEquals(3, li[13].getMethodStarts()[0].getEndColumn())
-
         //          A..........B
         //15:^        int p = 10;$
         assertEquals(3, li[15].getStatements()[0].getStartColumn())
         assertEquals(15, li[15].getStatements()[0].getEndLine())
         assertEquals(14, li[15].getStatements()[0].getEndColumn())
-
         //              A...........B
         //16:^        if (p % 2 == 0) {$
         assertEquals(6, li[16].getBranches()[0].getStartColumn())
         assertEquals(16, li[16].getBranches()[0].getEndLine())
         assertEquals(18, li[16].getBranches()[0].getEndColumn())
-
         //              A...B
         //17:^            p++
         assertEquals(4, li[17].getStatements()[0].getStartColumn())
         assertEquals(17, li[17].getStatements()[0].getEndLine())
         assertEquals(8, li[17].getStatements()[0].getEndColumn())
-
         //              A...B
         //19:^            p--
         assertEquals(4, li[19].getStatements()[0].getStartColumn())
         assertEquals(19, li[19].getStatements()[0].getEndLine())
         assertEquals(8, li[19].getStatements()[0].getEndColumn())
     }
-
 }

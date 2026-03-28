@@ -16,7 +16,7 @@ public class JavaParserInstrumenterTest {
     private static final long REGISTRY_VERSION = 1L;
     private static final String OPENCLOVER_MARKER = "/* $$ This file has been instrumented by OpenClover";
     private static final String INC_PREFIX = "__CLR4_1_100hckkb3w8.R.inc(";
-    private static final String LAMBDA_INC_PREFIX = ".lambdaInc(";
+    private static final String LAMBDA_INC_PREFIX = "lambdaInc(";
     private static final String INC_0 = INC_PREFIX + "0)";
     private static final String INC_1 = INC_PREFIX + "1)";
     private static final String INC_2 = INC_PREFIX + "2)";

@@ -4,6 +4,7 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
@@ -17,6 +18,7 @@ import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
+import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.AssertStmt;
 import com.github.javaparser.ast.stmt.BlockStmt;
@@ -298,7 +300,7 @@ public class SessionAwareInstrumenter {
     static class SessionAwareVisitor extends VoidVisitorAdapter<List<Insertion>> {
         private static final String INC_PREFIX = ".inc(";
         private static final String INC_SUFFIX = ");";
-        private static final String LAMBDA_INC_PREFIX = ".lambdaInc(";
+        private static final String LAMBDA_INC_PREFIX = "lambdaInc(";
 
         private final InstrumentationSession session;
         private final JavaInstrumentationConfig config;
@@ -737,15 +739,43 @@ public class SessionAwareInstrumenter {
 
         @Override
         public void visit(SwitchEntry entry, List<Insertion> insertions) {
-            List<Statement> statements = entry.getStatements();
-            if (!statements.isEmpty()) {
-                Statement firstStmt = statements.get(0);
-                Optional<Position> pos = firstStmt.getBegin();
-                if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
-                    instrumentStatement(firstStmt, insertions);
+            // Only instrument switch entries in switch STATEMENTS (colon-cases)
+            // Switch EXPRESSION entries (arrow-cases) are handled by visit(SwitchExpr)
+            if (entry.getParentNode().isPresent()) {
+                Node parent = entry.getParentNode().get();
+                // Only instrument if parent is NOT a switch expression
+                if (!(parent instanceof SwitchExpr)) {
+                    List<Statement> statements = entry.getStatements();
+                    if (!statements.isEmpty()) {
+                        Statement firstStmt = statements.get(0);
+                        Optional<Position> pos = firstStmt.getBegin();
+                        if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
+                            instrumentStatement(firstStmt, insertions);
+                        }
+                    }
                 }
             }
             super.visit(entry, insertions);
+        }
+
+        @Override
+        public void visit(SwitchExpr switchExpr, List<Insertion> insertions) {
+            // For switch expressions with arrow syntax:
+            // - Block cases (case X -> { ... }): instrument after opening brace
+            // - Expression cases (case X -> expr): skip branch instrumentation
+            for (SwitchEntry entry : switchExpr.getEntries()) {
+                List<Statement> statements = entry.getStatements();
+                if (!statements.isEmpty()) {
+                    Statement firstStmt = statements.get(0);
+                    // Only instrument if it's a block (arrow -> { ... })
+                    // Skip expression cases (arrow -> expr) as we can't insert statements before expressions
+                    if (firstStmt instanceof BlockStmt) {
+                        instrumentBranch(firstStmt, insertions);
+                    }
+                }
+            }
+            // Recursively visit children for nested statement instrumentation
+            super.visit(switchExpr, insertions);
         }
 
         @Override
@@ -792,8 +822,8 @@ public class SessionAwareInstrumenter {
 
                         int methodIndex = session.getCurrentOffsetFromFile() - 2;
                         int stmtIndex = stmtInfo.getDataIndex();
-                        String recorderBase = extractRecorderBase();
-                        String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
+                        // lambdaInc is now at top-level class scope, not inside __CLR inner class
+                        String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
                         String suffix = "," + stmtIndex + ")";
                         insertions.add(Insertion.before(lambdaStart.get().line, lambdaStart.get().column, prefix, 12));
                         insertions.add(Insertion.after(lambdaEnd.get().line, lambdaEnd.get().column, suffix, 12));
@@ -837,8 +867,8 @@ public class SessionAwareInstrumenter {
 
                 int methodIndex = session.getCurrentOffsetFromFile() - 2;
                 int stmtIndex = stmtInfo.getDataIndex();
-                String recorderBase = extractRecorderBase();
-                String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
+                // lambdaInc is now at top-level class scope, not inside __CLR inner class
+                String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
                 String suffix = "," + stmtIndex + ")";
                 insertions.add(Insertion.before(start.get().line, start.get().column, prefix, 12));
                 insertions.add(Insertion.after(end.get().line, end.get().column, suffix, 12));
@@ -1037,13 +1067,14 @@ public class SessionAwareInstrumenter {
         }
 
         /**
-         * Generates the static recorder inner class code.
+         * Generates the static recorder inner class code including lambdaInc method.
          */
         private String generateRecorderCode() {
             String recorderBase = extractRecorderBase();
             String recorderSuffix = extractRecorderSuffix();
 
             StringBuilder sb = new StringBuilder();
+            // Static recorder class
             sb.append("public static class ").append(recorderBase).append("{");
             sb.append("public static ").append(CoverageRecorder.class.getName()).append(" ").append(recorderSuffix).append(";");
             sb.append("static{");
@@ -1053,9 +1084,36 @@ public class SessionAwareInstrumenter {
             sb.append(registryVersion).append("L,0L,0,null,null);");
             sb.append("}catch(").append(JAVA_LANG_PREFIX).append("Throwable t){}");
             sb.append("}}");
+
+            // Lambda proxy method (at top-level class scope for proper interface access)
+            sb.append(generateLambdaIncMethod(recorderBase, recorderSuffix, JAVA_LANG_PREFIX));
+
+            // Test sniffer field
             sb.append("public static final org_openclover_runtime.TestNameSniffer ");
             sb.append("__CLR_TEST_NAME_SNIFFER=org_openclover_runtime.TestNameSniffer.NULL_INSTANCE;");
             return sb.toString();
+        }
+
+        /**
+         * Generates the lambdaInc proxy method for wrapping lambda expressions.
+         * Must be at top-level class scope (not inside __CLR) to access package-private interfaces.
+         */
+        private String generateLambdaIncMethod(String recorderBase, String recorderSuffix, String javaLangPrefix) {
+            String recorderRef = recorderBase + "." + recorderSuffix;
+            return "@" + javaLangPrefix + "SuppressWarnings(\"unchecked\") " +
+                    "public static <I, T extends I> I lambdaInc(final int i,final T l,final int si){" +
+                    javaLangPrefix + "reflect.InvocationHandler h=" +
+                    "new " + javaLangPrefix + "reflect.InvocationHandler(){" +
+                    "public " + javaLangPrefix + "Object invoke(" +
+                    javaLangPrefix + "Object p," + javaLangPrefix + "reflect.Method m," +
+                    javaLangPrefix + "Object[] a) throws Throwable{" +
+                    recorderRef + ".inc(i);" +
+                    recorderRef + ".inc(si);" +
+                    "try{return m.invoke(l,a);}catch(" + javaLangPrefix + "reflect.InvocationTargetException e){" +
+                    "throw e.getCause()!=null?e.getCause():" +
+                    "new RuntimeException(\"OpenClover failed to invoke instrumented lambda\",e);" +
+                    "}}};return (I)" + javaLangPrefix + "reflect.Proxy.newProxyInstance(l.getClass().getClassLoader(),l.getClass().getInterfaces(),h);" +
+                    "}";
         }
 
         private String extractRecorderBase() {

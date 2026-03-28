@@ -1,6 +1,7 @@
 package org.openclover.core
 
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Test
 import org.openclover.core.util.JavaEnvUtils
 
@@ -9,8 +10,8 @@ import org.openclover.core.util.JavaEnvUtils
  * <li>make sure the code compiles under JDK1.5 or later</li>
  * <li>make sure that when that code is instrumented, it still compiles</li>
  */
+@Ignore("Source levels below Java 8 are no longer supported")
 class JavaSyntax5CompilationTest extends JavaSyntaxCompilationTestBase {
-
     @Before
     void setUp() {
         setUpProject()
@@ -31,27 +32,19 @@ class JavaSyntax5CompilationTest extends JavaSyntaxCompilationTestBase {
     void testInstrumentationAndCompilation_15() throws Exception {
         final File srcDir = new File(mTestcasesSrcDir, "javasyntax1.5")
         instrumentAndCompileSources(srcDir, JavaEnvUtils.JAVA_8)
-
         String[] testCaseMainClasses = [
                 "coverage.enums.EnumTests",
                 "coverage.metadata.TestCases",
         ]
         executeMainClasses(testCaseMainClasses)
-
         // assert metrics
         assertMethodCoverage("coverage.enums.E1", 13)
-
         assertStatementCoverage("coverage.enums.E2", 8, 1)
         assertMethodCoverage("coverage.enums.E2", 14, 2)
-
         assertMethodCoverage("coverage.enums.E3", 7)
-
         //TODO remove this once 1.5 goes final?
 //        assertMethodCoverage("coverage.metadata.Annot2", 8)
 //        assertMethodCoverage("coverage.metadata.Annot2", 16)
-
         assertMethodCoverage("coverage.metadata.DeprecatedTest", 5)
     }
-
 }
-
