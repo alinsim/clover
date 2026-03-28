@@ -19,12 +19,11 @@
         <postStartupActivity
             implementation="org.openclover.idea.CloverProjectActivity"/>
 
-        <!-- TODO (.7): Tool window registration
+        <!-- Coverage tool window -->
         <toolWindow id="OpenClover"
                     anchor="bottom"
                     icon="/icons/clover_tny.png"
                     factoryClass="org.openclover.idea.toolwindow.CloverToolWindowFactory"/>
-        -->
 
         <!-- TODO (.8): Settings/Configurable
         <applicationConfigurable
