@@ -468,14 +468,14 @@ public class JavaParserInstrumenter {
             String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
 
             // Rewrite: case X -> expr;  →  case X -> {R.inc(N);yield expr;}
-            // Insert { + inc + yield before the expression
+            // entry.getEnd() is at the last char of the expression (e.g. closing " of "one")
+            // The ; is one column AFTER entry.getEnd(), so we insert } after the ;
             String prefix = "{" + incCode + (needsYield ? "yield " : "");
-            // Insert } after the entry's end (which includes the ;)
-            // So: 10; becomes {R.inc(N);yield 10;}
             String suffix = "}";
 
             insertions.add(Insertion.before(stmtStart.get().line, stmtStart.get().column, prefix, 15));
-            insertions.add(Insertion.after(entryEnd.get().line, entryEnd.get().column, suffix, 15));
+            // +1 to skip past the trailing ; that follows the entry
+            insertions.add(Insertion.after(entryEnd.get().line, entryEnd.get().column + 1, suffix, 15));
         }
 
         @Override

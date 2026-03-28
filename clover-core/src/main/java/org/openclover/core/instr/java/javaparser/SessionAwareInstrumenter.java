@@ -833,7 +833,8 @@ public class SessionAwareInstrumenter {
             String suffix = "}";
 
             insertions.add(Insertion.before(stmtStart.get().line, stmtStart.get().column, prefix, 15));
-            insertions.add(Insertion.after(entryEnd.get().line, entryEnd.get().column, suffix, 15));
+            // +1 to skip past the trailing ; that follows the entry
+            insertions.add(Insertion.after(entryEnd.get().line, entryEnd.get().column + 1, suffix, 15));
         }
 
         @Override
