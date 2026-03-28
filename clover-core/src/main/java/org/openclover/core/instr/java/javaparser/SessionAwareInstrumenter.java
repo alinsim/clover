@@ -11,9 +11,13 @@ import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
+import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.AssertStmt;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
@@ -29,6 +33,7 @@ import com.github.javaparser.ast.stmt.SwitchEntry;
 import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -338,6 +343,65 @@ public class SessionAwareInstrumenter {
             return true;
         }
 
+        /**
+         * Checks if a method is a test method based on annotations.
+         */
+        private boolean isTestMethod(MethodDeclaration methodDecl) {
+            for (AnnotationExpr annotation : methodDecl.getAnnotations()) {
+                String name = annotation.getNameAsString();
+                if ("Test".equals(name) || "ParameterizedTest".equals(name)
+                        || "org.junit.Test".equals(name)
+                        || "org.junit.jupiter.api.Test".equals(name)
+                        || "org.testng.annotations.Test".equals(name)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * Checks if a class is a test class based on annotations or inheritance.
+         */
+        private boolean isTestClass(ClassOrInterfaceDeclaration classDecl) {
+            if (classDecl.isInterface()) {
+                return false;
+            }
+            for (ClassOrInterfaceType ext : classDecl.getExtendedTypes()) {
+                if ("TestCase".equals(ext.getNameAsString())) {
+                    return true;
+                }
+            }
+            for (AnnotationExpr ann : classDecl.getAnnotations()) {
+                String name = ann.getNameAsString();
+                if ("RunWith".equals(name) || "ExtendWith".equals(name)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * Calculates cyclomatic complexity for a method body.
+         */
+        private static int calculateComplexity(BlockStmt body) {
+            int complexity = 1;
+            complexity += body.findAll(IfStmt.class).size();
+            complexity += body.findAll(WhileStmt.class).size();
+            complexity += body.findAll(DoStmt.class).size();
+            complexity += body.findAll(ForStmt.class).size();
+            complexity += body.findAll(ForEachStmt.class).size();
+            complexity += body.findAll(SwitchEntry.class).stream()
+                    .filter(e -> !e.getLabels().isEmpty())
+                    .count();
+            complexity += body.findAll(CatchClause.class).size();
+            complexity += body.findAll(ConditionalExpr.class).size();
+            complexity += body.findAll(BinaryExpr.class).stream()
+                    .filter(e -> e.getOperator() == BinaryExpr.Operator.AND
+                                 || e.getOperator() == BinaryExpr.Operator.OR)
+                    .count();
+            return complexity;
+        }
+
         @Override
         public void visit(ClassOrInterfaceDeclaration classDecl, List<Insertion> insertions) {
             Optional<Position> begin = classDecl.getBegin();
@@ -448,6 +512,21 @@ public class SessionAwareInstrumenter {
                 if (begin.isPresent()) {
                     // Build method signature with modifiers and return type
                     MethodSignature sig = buildMethodSignature(methodDecl);
+                    String name = methodDecl.getNameAsString();
+
+                    // Detect test methods
+                    boolean isTest = isTestMethod(methodDecl);
+
+                    // JUnit 3 style: method name starts with "test" and is in a test class
+                    if (!isTest && name.startsWith("test")) {
+                        ClassOrInterfaceDeclaration classDecl = methodDecl.findAncestor(ClassOrInterfaceDeclaration.class).orElse(null);
+                        if (classDecl != null && isTestClass(classDecl)) {
+                            isTest = true;
+                        }
+                    }
+
+                    // Calculate complexity
+                    int complexity = calculateComplexity(body.get());
 
                     FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
 
@@ -455,10 +534,10 @@ public class SessionAwareInstrumenter {
                             new ContextSetImpl(),
                             region,
                             sig,
+                            isTest,
+                            isTest ? name : null,
                             false,
-                            null,
-                            false,
-                            1,
+                            complexity,
                             LanguageConstruct.Builtin.METHOD);
 
                     // Inject method entry tracking
@@ -487,6 +566,9 @@ public class SessionAwareInstrumenter {
                 String name = ctorDecl.getNameAsString();
                 MethodSignature sig = new MethodSignature(name);
 
+                // Calculate complexity
+                int complexity = calculateComplexity(body);
+
                 FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
 
                 session.enterMethod(
@@ -496,7 +578,7 @@ public class SessionAwareInstrumenter {
                         false,
                         null,
                         false,
-                        1,
+                        complexity,
                         LanguageConstruct.Builtin.METHOD);
 
                 injectMethodEntry(body, insertions);
