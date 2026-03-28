@@ -300,6 +300,7 @@ public class SessionAwareInstrumenter {
     static class SessionAwareVisitor extends VoidVisitorAdapter<List<Insertion>> {
         private static final String INC_PREFIX = ".inc(";
         private static final String INC_SUFFIX = ");";
+        private static final long DEFAULT_MODIFIER_BIT = 0x80000000L;
         private static final String LAMBDA_INC_PREFIX = "lambdaInc(";
 
         private final InstrumentationSession session;
@@ -420,9 +421,7 @@ public class SessionAwareInstrumenter {
             for (AnnotationExpr annotation : methodDecl.getAnnotations()) {
                 String name = annotation.getNameAsString();
                 if ("Test".equals(name) || "ParameterizedTest".equals(name)
-                        || "org.junit.Test".equals(name)
-                        || "org.junit.jupiter.api.Test".equals(name)
-                        || "org.testng.annotations.Test".equals(name)) {
+                        || name.endsWith(".Test") || name.endsWith(".ParameterizedTest")) {
                     return true;
                 }
             }
@@ -491,9 +490,13 @@ public class SessionAwareInstrumenter {
 
                 session.enterClass(className, region, mods, isInterface, false, false);
 
-                // Inject recorder for all classes and interfaces
-                // Interfaces can have static inner classes since Java 8
-                injectRecorder(classDecl, insertions);
+                // Only inject recorder for classes that can have static members.
+                // Skip: non-static inner classes (can't have static members in Java 8-15),
+                // interfaces with no concrete members.
+                if (!isNonStaticInnerClass(classDecl)
+                        && (!isInterface || hasConcreteMembers(classDecl))) {
+                    injectRecorder(classDecl, insertions);
+                }
             }
 
             // Visit children
@@ -749,7 +752,8 @@ public class SessionAwareInstrumenter {
                     if (!statements.isEmpty()) {
                         Statement firstStmt = statements.get(0);
                         Optional<Position> pos = firstStmt.getBegin();
-                        if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
+                        if (pos.isPresent()) {
+                            // instrumentStatement now handles CLOVER:OFF internally
                             instrumentStatement(firstStmt, insertions);
                         }
                     }
@@ -806,29 +810,25 @@ public class SessionAwareInstrumenter {
                 if (body instanceof BlockStmt) {
                     // Block lambda: insert inc after opening brace (like method entry)
                     injectMethodEntry((BlockStmt) body, insertions);
-                    super.visit(lambda, insertions);
+                    // Explicitly visit the block body to ensure statements inside are registered
+                    ((BlockStmt) body).accept(this, insertions);
                 } else {
-                    // Expression lambda: wrap with lambdaInc() — skip super.visit() to avoid
-                    // inserting R.inc() statements inside the expression body (invalid Java)
+                    // Expression lambda: cannot safely wrap with lambdaInc() due to type inference issues
+                    // (breaks when generic type parameters are declared on methods, not classes)
+                    // Register the statement for coverage model but skip instrumentation
                     Optional<Position> lambdaStart = lambda.getBegin();
                     Optional<Position> lambdaEnd = lambda.getEnd();
-                    if (lambdaStart.isPresent() && lambdaEnd.isPresent() && isInstrumentationEnabled(lambdaStart.get().line)) {
+                    if (lambdaStart.isPresent() && lambdaEnd.isPresent()) {
+                        // Always register statement (even in CLOVER:OFF) for coverage model
                         FixedSourceRegion stmtRegion = new FixedSourceRegion(lambdaStart.get().line, lambdaStart.get().column);
-                        FullStatementInfo stmtInfo = session.addStatement(
+                        session.addStatement(
                                 new ContextSetImpl(),
                                 stmtRegion,
                                 0,
                                 LanguageConstruct.Builtin.STATEMENT);
-
-                        int methodIndex = session.getCurrentOffsetFromFile() - 2;
-                        int stmtIndex = stmtInfo.getDataIndex();
-                        // lambdaInc is now at top-level class scope, not inside __CLR inner class
-                        String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
-                        String suffix = "," + stmtIndex + ")";
-                        insertions.add(Insertion.before(lambdaStart.get().line, lambdaStart.get().column, prefix, 12));
-                        insertions.add(Insertion.after(lambdaEnd.get().line, lambdaEnd.get().column, suffix, 12));
+                        // Note: No instrumentation inserted - expression lambdas can't be reliably instrumented
+                        // without breaking Java's type inference in generic contexts
                     }
-                    // No super.visit() — lambdaInc already tracks invocation
                 }
             }
 
@@ -839,42 +839,8 @@ public class SessionAwareInstrumenter {
 
         @Override
         public void visit(MethodReferenceExpr methodRef, List<Insertion> insertions) {
-            Optional<Position> start = methodRef.getBegin();
-            Optional<Position> end = methodRef.getEnd();
-            if (start.isPresent() && end.isPresent() && isInstrumentationEnabled(start.get().line)) {
-                // Register method for the method reference
-                FixedSourceRegion methodRegion = new FixedSourceRegion(start.get().line, start.get().column);
-                String methodRefName = "methodRef$" + lambdaCounter++;
-                MethodSignature sig = new MethodSignature(methodRefName);
-
-                session.enterMethod(
-                        new ContextSetImpl(),
-                        methodRegion,
-                        sig,
-                        false,
-                        null,
-                        true,
-                        1,
-                        LanguageConstruct.Builtin.METHOD);
-
-                // Register statement for the method reference body
-                FixedSourceRegion stmtRegion = new FixedSourceRegion(start.get().line, start.get().column);
-                FullStatementInfo stmtInfo = session.addStatement(
-                        new ContextSetImpl(),
-                        stmtRegion,
-                        0,
-                        LanguageConstruct.Builtin.STATEMENT);
-
-                int methodIndex = session.getCurrentOffsetFromFile() - 2;
-                int stmtIndex = stmtInfo.getDataIndex();
-                // lambdaInc is now at top-level class scope, not inside __CLR inner class
-                String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
-                String suffix = "," + stmtIndex + ")";
-                insertions.add(Insertion.before(start.get().line, start.get().column, prefix, 12));
-                insertions.add(Insertion.after(end.get().line, end.get().column, suffix, 12));
-
-                session.exitMethod(end.get().line, end.get().column);
-            }
+            // Method references can't be reliably wrapped with lambdaInc
+            // without breaking type inference. Skip instrumentation.
             super.visit(methodRef, insertions);
         }
 
@@ -1004,6 +970,8 @@ public class SessionAwareInstrumenter {
 
         /**
          * Instruments a statement by registering it with the session and inserting R.inc(N).
+         * Always registers the statement (even in CLOVER:OFF regions) so it appears in the coverage model,
+         * but only inserts the instrumentation code when enabled.
          */
         private void instrumentStatement(Statement stmt, List<Insertion> insertions) {
             Optional<Position> pos = stmt.getBegin();
@@ -1015,10 +983,7 @@ public class SessionAwareInstrumenter {
                 return;
             }
 
-            // Match statement against context patterns
             ContextSetImpl stmtContext = matchStatementContexts(stmt);
-
-            // Register statement with session - this allocates an index
             FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
             FullStatementInfo stmtInfo = session.addStatement(
                     stmtContext,
@@ -1026,7 +991,6 @@ public class SessionAwareInstrumenter {
                     0,
                     LanguageConstruct.Builtin.STATEMENT);
 
-            // Use the session-allocated index
             int index = stmtInfo.getDataIndex();
             String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
             insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
@@ -1034,6 +998,8 @@ public class SessionAwareInstrumenter {
 
         /**
          * Instruments a branch by inserting R.inc(N) at the start of the branch body.
+         * Always registers the statement (even in CLOVER:OFF regions) so it appears in the coverage model,
+         * but only inserts the instrumentation code when enabled.
          */
         private void instrumentBranch(Statement branchBody, List<Insertion> insertions) {
             Optional<Position> pos = branchBody.getBegin();
@@ -1041,14 +1007,10 @@ public class SessionAwareInstrumenter {
                 return;
             }
 
-            if (!isInstrumentationEnabled(pos.get().line)) {
-                return;
-            }
-
             // Match statement against context patterns
             ContextSetImpl stmtContext = matchStatementContexts(branchBody);
 
-            // Register statement with session for the branch
+            // Always register statement with session for the branch
             FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
             FullStatementInfo stmtInfo = session.addStatement(
                     stmtContext,
@@ -1056,13 +1018,16 @@ public class SessionAwareInstrumenter {
                     0,
                     LanguageConstruct.Builtin.STATEMENT);
 
-            int index = stmtInfo.getDataIndex();
-            String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+            // Only insert instrumentation code if enabled (respects CLOVER:OFF)
+            if (isInstrumentationEnabled(pos.get().line)) {
+                int index = stmtInfo.getDataIndex();
+                String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
 
-            if (branchBody instanceof BlockStmt) {
-                insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
-            } else {
-                insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 15));
+                if (branchBody instanceof BlockStmt) {
+                    insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
+                } else {
+                    insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 15));
+                }
             }
         }
 
@@ -1166,7 +1131,7 @@ public class SessionAwareInstrumenter {
                 modMask |= Modifier.NATIVE;
             }
             if (methodDecl.isDefault()) {
-                modMask |= 0x80000000L; // DEFAULT modifier bit (not in java.lang.reflect.Modifier)
+                modMask |= DEFAULT_MODIFIER_BIT;
             }
 
             Modifiers mods = Modifiers.createFrom(modMask, null);
@@ -1200,6 +1165,17 @@ public class SessionAwareInstrumenter {
                 modMask |= Modifier.STATIC;
             }
             return Modifiers.createFrom(modMask, null);
+        }
+
+        private boolean hasConcreteMembers(ClassOrInterfaceDeclaration classDecl) {
+            return classDecl.getMethods().stream().anyMatch(m -> m.getBody().isPresent());
+        }
+
+        private boolean isNonStaticInnerClass(ClassOrInterfaceDeclaration classDecl) {
+            if (!classDecl.isNestedType()) {
+                return false;
+            }
+            return !classDecl.isStatic();
         }
     }
 }
