@@ -50,8 +50,53 @@
         -->
     </extensions>
 
-    <!-- TODO (.9): Actions
     <actions>
+        <!-- Main action group in the Tools menu -->
+        <group id="OpenClover.MainGroup"
+               text="OpenClover"
+               popup="true"
+               icon="/icons/clover_tny.png">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+            <action id="OpenClover.RefreshCoverage"
+                    class="org.openclover.idea.actions.RefreshCoverageAction"
+                    text="Refresh Coverage"
+                    description="Reload coverage data from the database"
+                    icon="/icons/sync.png"/>
+
+            <action id="OpenClover.ToggleInstrumentation"
+                    class="org.openclover.idea.actions.ToggleInstrumentationAction"
+                    text="Toggle Instrumentation"
+                    description="Enable or disable Clover instrumentation"/>
+
+            <action id="OpenClover.ToggleCoverageDisplay"
+                    class="org.openclover.idea.actions.ToggleCoverageDisplayAction"
+                    text="Toggle Coverage Display"
+                    description="Show or hide coverage data in editors"/>
+
+            <action id="OpenClover.ToggleGutter"
+                    class="org.openclover.idea.actions.ToggleGutterAction"
+                    text="Toggle Gutter Icons"
+                    description="Show or hide coverage gutter icons"/>
+
+            <action id="OpenClover.ToggleAutoRefresh"
+                    class="org.openclover.idea.actions.ToggleAutoRefreshAction"
+                    text="Toggle Auto-Refresh"
+                    description="Enable or disable automatic coverage refresh"/>
+
+            <separator/>
+
+            <action id="OpenClover.CleanCoverage"
+                    class="org.openclover.idea.actions.CleanCoverageAction"
+                    text="Clean Coverage Data"
+                    description="Delete the coverage database"/>
+
+            <separator/>
+
+            <action id="OpenClover.About"
+                    class="org.openclover.idea.actions.AboutAction"
+                    text="About OpenClover"
+                    description="Show OpenClover version information"/>
+        </group>
     </actions>
-    -->
 </idea-plugin>
