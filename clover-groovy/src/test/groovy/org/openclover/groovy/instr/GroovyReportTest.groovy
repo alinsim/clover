@@ -131,7 +131,7 @@ class GroovyReportTest extends TestBase {
         def reportDir = new File(groverConfigDir, "report")
         def result = launchJava("""
 
-                -Dclover.logging.level=verbose
+                -Dclover.logging.level=warn
                 -Djava.io.tmpdir=${System.getProperty("java.io.tmpdir")}
                 -Djava.awt.headless=true
                 -classpath ${calcReportClasspath([workingDir, calcRepkgJar()].findAll { it != null }.toList())}

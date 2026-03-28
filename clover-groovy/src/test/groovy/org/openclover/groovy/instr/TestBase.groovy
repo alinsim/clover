@@ -113,7 +113,7 @@ abstract class TestBase
            ${remoteDebugArg}
            ${dumpAstArg} 
            -Djava.io.tmpdir=${System.getProperty("java.io.tmpdir")}
-           -Dclover.logging.level=verbose
+           -Dclover.logging.level=warn
            -Djava.util.logging.config.file=${loggingProperties.absolutePath}
            -Dawt.headless=true
            -classpath

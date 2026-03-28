@@ -14,19 +14,19 @@ trait JavaExecutorMixin {
     }
 
     Result launchCmd(String cmd) {
-      System.out.println("Executing:")
-      System.out.println(cmd)
-
       def sout = new StringBuffer()
       def serr = new StringBuffer()
       def process = cmd.execute()
       process.consumeProcessOutput(sout, serr)
       int exitCode = process.waitFor()
       Result resultVal = new Result(stdErr: serr, stdOut: sout, exitCode: exitCode)
-      System.out.println("exit code: = " + resultVal.exitCode)
 
-      System.out.println("stdout: = '" + resultVal.stdOut + "'")
-      System.out.println("stderr: = '" + resultVal.stdErr + "'")
+      if (exitCode != 0) {
+          System.out.println("Command FAILED (exit code: " + exitCode + "):")
+          System.out.println(cmd)
+          System.out.println("stdout: = '" + resultVal.stdOut + "'")
+          System.out.println("stderr: = '" + resultVal.stdErr + "'")
+      }
 
       return resultVal
     }
