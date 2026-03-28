@@ -2,7 +2,8 @@ package org.openclover.core.instr.java.javaparser;
 
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -75,8 +76,7 @@ public class JavaParserInstrumenter {
                     "source appears to have already been instrumented by OpenClover.");
         }
 
-        configureParserForLatestJava();
-        CompilationUnit cu = StaticJavaParser.parse(sourceCode);
+        CompilationUnit cu = parseSource(sourceCode);
 
         List<Insertion> insertions = new ArrayList<>();
         AtomicInteger indexCounter = new AtomicInteger(0);
@@ -99,8 +99,7 @@ public class JavaParserInstrumenter {
      * @return number of instrumentation points (method entries, etc.)
      */
     public static int countInstrumentationPoints(String sourceCode, String recorderPrefix) {
-        configureParserForLatestJava();
-        CompilationUnit cu = StaticJavaParser.parse(sourceCode);
+        CompilationUnit cu = parseSource(sourceCode);
         List<Insertion> insertions = new ArrayList<>();
         AtomicInteger indexCounter = new AtomicInteger(0);
 
@@ -112,13 +111,16 @@ public class JavaParserInstrumenter {
     }
 
     /**
-     * Configures the JavaParser to support the latest available Java language level.
-     * This ensures modern syntax (records, sealed classes, text blocks, pattern matching)
-     * is parsed correctly.
+     * Parses source code using an instance-based JavaParser configured for Java 17.
+     * Uses instance parsing (not StaticJavaParser) to avoid issues with shaded class relocation.
      */
-    private static void configureParserForLatestJava() {
-        StaticJavaParser.getParserConfiguration()
+    private static CompilationUnit parseSource(String sourceCode) {
+        ParserConfiguration config = new ParserConfiguration()
                 .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
+        JavaParser parser = new JavaParser(config);
+        ParseResult<CompilationUnit> result = parser.parse(sourceCode);
+        return result.getResult().orElseThrow(() ->
+                new IllegalArgumentException("Failed to parse Java source: " + result.getProblems()));
     }
 
     /**

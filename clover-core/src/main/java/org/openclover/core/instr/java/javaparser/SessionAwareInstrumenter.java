@@ -2,7 +2,7 @@ package org.openclover.core.instr.java.javaparser;
 
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
@@ -55,7 +55,6 @@ import org.openclover.core.registry.entities.MethodSignature;
 import org.openclover.core.registry.entities.Modifiers;
 import org.openclover.core.registry.entities.Parameter;
 import org.openclover.core.spi.lang.LanguageConstruct;
-import org.openclover.core.util.UnicodeDecodingReader;
 import org.openclover.core.util.UnicodeEncodingWriter;
 import org.openclover.runtime.CloverNames;
 import org.openclover.runtime.api.CloverException;
@@ -147,9 +146,11 @@ public class SessionAwareInstrumenter {
             }
 
             // Configure parser for source level and parse
-            StaticJavaParser.getParserConfiguration()
+            ParserConfiguration parserConfig = new ParserConfiguration()
                     .setLanguageLevel(mapSourceLevel(config.getSourceLevel()));
-            CompilationUnit cu = StaticJavaParser.parse(sourceCode);
+            JavaParser parser = new JavaParser(parserConfig);
+            CompilationUnit cu = parser.parse(sourceCode).getResult()
+                    .orElseThrow(() -> new CloverException("Failed to parse source: " + source.getSourceFileLocation()));
 
             // Extract package name
             String packageName = cu.getPackageDeclaration()
@@ -208,7 +209,7 @@ public class SessionAwareInstrumenter {
     private static String readSource(InstrumentationSource source) throws IOException {
         StringBuilder sb = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
-                new UnicodeDecodingReader(source.createReader()))) {
+                source.createReader())) {
             String line;
             while ((line = reader.readLine()) != null) {
                 sb.append(line).append("\n");
