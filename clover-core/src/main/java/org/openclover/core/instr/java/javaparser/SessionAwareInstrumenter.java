@@ -529,8 +529,11 @@ public class SessionAwareInstrumenter {
 
                 session.enterClass(enumName, region, mods, false, true, false);
 
-                // Inject recorder for enums (they can have methods)
-                injectRecorder(enumDecl, insertions);
+                // Only inject recorder for enums with methods/constructors.
+                // Simple enums with only constants create invalid Java.
+                if (!enumDecl.getMethods().isEmpty() || !enumDecl.getConstructors().isEmpty()) {
+                    injectRecorder(enumDecl, insertions);
+                }
             }
 
             // Visit children
@@ -658,7 +661,7 @@ public class SessionAwareInstrumenter {
                         complexity,
                         LanguageConstruct.Builtin.METHOD);
 
-                injectMethodEntry(body, insertions);
+                injectConstructorEntry(body, insertions);
             }
 
             super.visit(ctorDecl, insertions);
@@ -1058,6 +1061,32 @@ public class SessionAwareInstrumenter {
             int index = session.getCurrentOffsetFromFile() - 1;
             String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
             insertions.add(Insertion.after(pos.line, pos.column, incCode, 10));
+        }
+
+        /**
+         * Injects R.inc(N) into a constructor body, placing it AFTER any explicit
+         * super() or this() call. Java does not allow statements before the
+         * constructor delegation call without --enable-preview.
+         */
+        private void injectConstructorEntry(BlockStmt body, List<Insertion> insertions) {
+            if (!body.getBegin().isPresent()) {
+                return;
+            }
+
+            if (!body.getStatements().isEmpty()) {
+                Statement first = body.getStatements().get(0);
+                if (first.isExplicitConstructorInvocationStmt()) {
+                    Optional<Position> end = first.getEnd();
+                    if (end.isPresent() && isInstrumentationEnabled(end.get().line)) {
+                        int index = session.getCurrentOffsetFromFile() - 1;
+                        String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                        insertions.add(Insertion.after(end.get().line, end.get().column, incCode, 10));
+                    }
+                    return;
+                }
+            }
+
+            injectMethodEntry(body, insertions);
         }
 
         /**

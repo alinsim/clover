@@ -243,8 +243,14 @@ public class JavaParserInstrumenter {
 
         @Override
         public void visit(EnumDeclaration enumDecl, List<Insertion> insertions) {
-            // Inject recorder for enums (they can have methods)
-            injectRecorder(enumDecl, insertions);
+            // Only inject recorder for enums that have actual members (methods/constructors).
+            // Simple enums with only constants (e.g., enum Color { RED, GREEN, BLUE })
+            // don't need a recorder and injecting one creates invalid Java because
+            // the recorder class appears between constants and the closing brace
+            // without a semicolon separator.
+            if (!enumDecl.getMethods().isEmpty() || !enumDecl.getConstructors().isEmpty()) {
+                injectRecorder(enumDecl, insertions);
+            }
             super.visit(enumDecl, insertions);
         }
 
@@ -266,8 +272,37 @@ public class JavaParserInstrumenter {
         @Override
         public void visit(ConstructorDeclaration ctorDecl, List<Insertion> insertions) {
             BlockStmt body = ctorDecl.getBody();
-            injectMethodEntry(body, insertions);
+            injectConstructorEntry(body, insertions);
             super.visit(ctorDecl, insertions);
+        }
+
+        /**
+         * Injects R.inc(N) into a constructor body, taking care to place it AFTER any
+         * explicit super() or this() call. Java does not allow statements before the
+         * constructor delegation call (without --enable-preview).
+         */
+        private void injectConstructorEntry(BlockStmt body, List<Insertion> insertions) {
+            if (!body.getBegin().isPresent()) {
+                return;
+            }
+
+            // Check if the first statement is super() or this()
+            if (!body.getStatements().isEmpty()) {
+                Statement first = body.getStatements().get(0);
+                if (first.isExplicitConstructorInvocationStmt()) {
+                    // Insert AFTER the super()/this() call
+                    Optional<Position> end = first.getEnd();
+                    if (end.isPresent() && isInstrumentationEnabled(end.get().line)) {
+                        int index = indexCounter.getAndIncrement();
+                        String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                        insertions.add(Insertion.after(end.get().line, end.get().column, incCode, 10));
+                    }
+                    return;
+                }
+            }
+
+            // No explicit super()/this() — insert after opening brace as normal
+            injectMethodEntry(body, insertions);
         }
 
         @Override
