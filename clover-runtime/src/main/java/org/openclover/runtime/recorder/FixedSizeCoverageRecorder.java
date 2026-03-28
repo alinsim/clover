@@ -17,8 +17,10 @@ import java.util.concurrent.Callable;
 public final class FixedSizeCoverageRecorder extends BaseCoverageRecorder {
     private static final Set<String> TRUNC_WARNING_DBS = Collections.synchronizedSet(new HashSet<>());
     private static final Set<String> MERGE_WARNING_DBS = Collections.synchronizedSet(new HashSet<>());
+    private static final String OPENCLOVER_DATABASE_PREFIX = "OpenClover database: '";
+    private static final String COVERAGE_DATA_NOT_GATHERED_MSG = "Coverage data for some classes will not be gathered.";
 
-    private final int[] elements;
+    private volatile int[] elements;
 
     /**
      * Factory method. Use this to get an instance of the recorder. Do not call constructors directly
@@ -42,8 +44,8 @@ public final class FixedSizeCoverageRecorder extends BaseCoverageRecorder {
             if (!MERGE_WARNING_DBS.contains(dbFile.getAbsolutePath())) {
                 MERGE_WARNING_DBS.add(dbFile.getAbsolutePath());
                 Logger.getInstance().warn(
-                        "OpenClover database: '" + dbFile.getAbsolutePath() + "' can only be used for reporting because it is the result of a merge.");
-                Logger.getInstance().warn("Coverage data for some classes will not be gathered.");
+                        OPENCLOVER_DATABASE_PREFIX + dbFile.getAbsolutePath() + "' can only be used for reporting because it is the result of a merge.");
+                Logger.getInstance().warn(COVERAGE_DATA_NOT_GATHERED_MSG);
             }
             return NullRecorder.INSTANCE;
         }
@@ -60,16 +62,18 @@ public final class FixedSizeCoverageRecorder extends BaseCoverageRecorder {
 
     @Override
     public CloverBitSet compareCoverageWith(CoverageSnapshot before) {
+        int[] e = elements;
         final int[] beforeElements = before.getCoverage()[0];
         for(int i = 0; i < beforeElements.length; i++) {
-            beforeElements[i] = beforeElements[i] - elements[i];
+            beforeElements[i] = beforeElements[i] - e[i];
         }
         return CloverBitSet.forHits(beforeElements);
     }
 
     @Override
     public CloverBitSet createEmptyHitsMask() {
-        return new CloverBitSet(elements.length);
+        int[] e = elements;
+        return new CloverBitSet(e.length);
     }
 
     /**
@@ -97,17 +101,22 @@ public final class FixedSizeCoverageRecorder extends BaseCoverageRecorder {
 
     @Override
     public CoverageRecorder withCapacityFor(int maxNumElements) {
-        return recorderBigEnoughFor(dbName, maxNumElements, elements.length, new NewRecorderBlock() {
-            @Override
-            public CoverageRecorder call() {
-                return FixedSizeCoverageRecorder.this;
+        if (maxNumElements > elements.length) {
+            synchronized (this) {
+                if (maxNumElements > elements.length) {
+                    int[] newElements = new int[maxNumElements];
+                    System.arraycopy(elements, 0, newElements, 0, elements.length);
+                    elements = newElements;
+                }
             }
-        });
+        }
+        return this;
     }
 
     @Override
     public CoverageSnapshot getCoverageSnapshot() {
-        return new CoverageSnapshot(new int[][] {elements.clone()});
+        int[] e = elements;
+        return new CoverageSnapshot(new int[][] {e.clone()});
     }
 
     private static CoverageRecorder recorderBigEnoughFor(String dbName, int numRequiredElements, int numAvailableElements, NewRecorderBlock recorderIfSufficient) {
@@ -123,9 +132,9 @@ public final class FixedSizeCoverageRecorder extends BaseCoverageRecorder {
         if (!TRUNC_WARNING_DBS.contains(dbName)) {
             TRUNC_WARNING_DBS.add(dbName);
             Logger.getInstance().warn(
-                "OpenClover database: '" + dbName + "' is no longer valid. Min required size for currently loading class: " +
+                OPENCLOVER_DATABASE_PREFIX + dbName + "' is no longer valid. Min required size for currently loading class: " +
                 numRequiredElements + ", actual size: " + numAvailableElements);
-            Logger.getInstance().warn("Coverage data for some classes will not be gathered.");
+            Logger.getInstance().warn(COVERAGE_DATA_NOT_GATHERED_MSG);
         }
     }
 
@@ -137,7 +146,8 @@ public final class FixedSizeCoverageRecorder extends BaseCoverageRecorder {
     ///CLOVER:OFF
     @Override
     public String toString() {
-        return "FixedSizeCoverageRecorder[elements.length=" + elements.length + "]";
+        int[] e = elements;
+        return "FixedSizeCoverageRecorder[elements.length=" + e.length + "]";
     }
     ///CLOVER:ON
 }

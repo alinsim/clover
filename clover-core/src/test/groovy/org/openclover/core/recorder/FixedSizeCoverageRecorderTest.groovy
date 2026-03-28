@@ -182,17 +182,17 @@ class FixedSizeCoverageRecorderTest {
     }
 
     @Test
-    void testNullRecorderWhenCapacityInsufficient() {
+    void testRecorderGrowsWhenCapacityInsufficient() {
         CoverageRecorder recorder = new FixedSizeCoverageRecorder("foo", 0, 1000, 0L)
-        assertSame(NullRecorder.INSTANCE, recorder.withCapacityFor(1001))
-        assertSame(NullRecorder.INSTANCE, recorder.withCapacityFor(2001))
+        assertSame(recorder, recorder.withCapacityFor(1001))
+        assertSame(recorder, recorder.withCapacityFor(2001))
     }
 
     @Test
     void testThisRecorderReturnedWhenCapacitySufficient() {
         CoverageRecorder recorder = new FixedSizeCoverageRecorder("foo", 0, 1000, 0L)
         assertSame(recorder, recorder.withCapacityFor(1000))
-        assertSame(NullRecorder.INSTANCE, recorder.withCapacityFor(1001))
+        assertSame(recorder, recorder.withCapacityFor(1001))
         assertSame(recorder, recorder.withCapacityFor(1000))
     }
 
