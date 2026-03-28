@@ -8,8 +8,10 @@ import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import kotlinx.coroutines.CoroutineScope
 import org.openclover.idea.config.CloverProjectConfig
+import org.openclover.idea.coverage.CoverageManager
 
 /**
  * Project-level service for OpenClover.
@@ -17,9 +19,8 @@ import org.openclover.idea.config.CloverProjectConfig
  *
  * Responsibilities:
  * - Per-project configuration persistence (workspace file)
- * - Coverage data lifecycle (load, refresh, cleanup)
- * - Feature flag management (enabled, building, reporting, gutter, inline, etc.)
- * - Coverage manager and database monitor coordination
+ * - Coverage data lifecycle via [CoverageManager]
+ * - Feature flag management
  *
  * The [coroutineScope] is provided by the platform and cancelled automatically
  * when the project closes — no manual lifecycle management needed.
@@ -36,6 +37,13 @@ class CloverProjectService(
 
     private var config = CloverProjectConfig()
 
+    /** Coverage data manager — loads and refreshes coverage from the Clover database. */
+    val coverageManager: CoverageManager by lazy {
+        CoverageManager(project, coroutineScope, config).also {
+            Disposer.register(this, it)
+        }
+    }
+
     val isEnabled: Boolean get() = config.enabled
     val isBuildWithClover: Boolean get() = config.buildWithClover
 
@@ -46,10 +54,6 @@ class CloverProjectService(
         thisLogger().info("Loaded OpenClover config for project: ${project.name}")
     }
 
-    /**
-     * Access the current project configuration.
-     * Returns a reference — modifications are reflected immediately.
-     */
     fun getConfig(): CloverProjectConfig = config
 
     override fun dispose() {

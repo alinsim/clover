@@ -6,8 +6,7 @@ import com.intellij.openapi.startup.ProjectActivity
 
 /**
  * Runs when a project is opened and initialized.
- * Replaces the old `StartupManager.runWhenProjectIsInitialized` callback
- * in [ProjectPlugin].
+ * Replaces the old `StartupManager.runWhenProjectIsInitialized` callback.
  *
  * This is a suspend function — it runs in the project's coroutine scope
  * and can perform async I/O without blocking the EDT.
@@ -23,7 +22,15 @@ class CloverProjectActivity : ProjectActivity {
 
         thisLogger().info("OpenClover activating for project: ${project.name}")
 
-        // TODO (.5): Initialize CoverageManager — load coverage database
+        // Load coverage data
+        val coverageManager = service.coverageManager
+        coverageManager.reload()
+
+        // Start auto-refresh if configured
+        if (service.getConfig().autoRefresh) {
+            coverageManager.startAutoRefresh()
+        }
+
         // TODO (.6): Register editor coverage annotations
         // TODO (.7): Register tool window
         // TODO (.10): Register build system hooks
