@@ -867,8 +867,21 @@ public class SessionAwareInstrumenter {
                     injectMethodEntry((BlockStmt) body, insertions);
                     ((BlockStmt) body).accept(this, insertions);
                 } else {
-                    // Expression lambda: wrap with lambdaInc() if safe
-                    wrapWithLambdaIncSession(lambda, insertions);
+                    // Expression lambda: rewrite to block form
+                    // x -> expr  →  x -> {R.inc(N); return expr;}
+                    Optional<Position> bodyStart = body.getBegin();
+                    Optional<Position> bodyEnd = body.getEnd();
+                    if (bodyStart.isPresent() && bodyEnd.isPresent() && isInstrumentationEnabled(bodyStart.get().line)) {
+                        int index = session.getCurrentOffsetFromFile() - 1;
+                        String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                        // Insert {R.inc(N);return  before the expression
+                        String prefix = "{" + incCode + "return ";
+                        // Insert ;} after the expression
+                        String suffix = ";}";
+                        insertions.add(Insertion.before(bodyStart.get().line, bodyStart.get().column, prefix, 10));
+                        insertions.add(Insertion.after(bodyEnd.get().line, bodyEnd.get().column, suffix, 10));
+                    }
+                    // No super.visit() — statements inside expression are covered by the rewrite
                 }
             }
 
