@@ -41,12 +41,17 @@
         <projectViewNodeDecorator
             implementation="org.openclover.idea.projectview.CoverageProjectViewDecorator"/>
 
-        <!-- TODO (.12): Custom file editors (TreeMap, Cloud)
+        <!-- Test explorer tool window -->
+        <toolWindow id="OpenClover Tests"
+                    anchor="bottom"
+                    icon="/icons/nodes_junitTestClass.png"
+                    factoryClass="org.openclover.idea.testexplorer.TestExplorerToolWindowFactory"/>
+
+        <!-- Custom file editors for coverage visualizations -->
         <fileEditorProvider
-            implementation="org.openclover.idea.report.treemap.TreeMapEditorProvider"/>
+            implementation="org.openclover.idea.report.TreeMapEditorProvider"/>
         <fileEditorProvider
-            implementation="org.openclover.idea.report.cloud.CloudEditorProvider"/>
-        -->
+            implementation="org.openclover.idea.report.CloudEditorProvider"/>
     </extensions>
 
     <actions>
