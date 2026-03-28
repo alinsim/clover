@@ -4,9 +4,13 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
@@ -32,13 +36,16 @@ import org.jetbrains.annotations.Nullable;
 import org.openclover.core.api.instrumentation.InstrumentationSession;
 import org.openclover.core.api.registry.FileInfo;
 import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
+import org.openclover.core.cfg.instr.java.SourceLevel;
 import org.openclover.core.context.ContextSetImpl;
 import org.openclover.core.instr.java.FileStructureInfo;
 import org.openclover.core.instr.java.InstrumentationSource;
 import org.openclover.core.registry.FixedSourceRegion;
 import org.openclover.core.registry.entities.FullStatementInfo;
 import org.openclover.core.registry.entities.MethodSignature;
+import org.openclover.core.registry.entities.ModifierExt;
 import org.openclover.core.registry.entities.Modifiers;
+import org.openclover.core.registry.entities.Parameter;
 import org.openclover.core.spi.lang.LanguageConstruct;
 import org.openclover.runtime.CloverNames;
 import org.openclover.runtime.api.CloverException;
@@ -99,9 +106,16 @@ public class SessionAwareInstrumenter {
             // Read the source code into a string
             String sourceCode = readSource(source);
 
-            // Configure parser for latest Java and parse
+            // Guard against double instrumentation
+            if (sourceCode.startsWith(SourceRewriter.MARKER_PREFIX)) {
+                throw new CloverException("Double instrumentation detected: " +
+                        source.getSourceFileLocation().getAbsolutePath() +
+                        " appears to have already been instrumented by OpenClover.");
+            }
+
+            // Configure parser for source level and parse
             StaticJavaParser.getParserConfiguration()
-                    .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
+                    .setLanguageLevel(mapSourceLevel(config.getSourceLevel()));
             CompilationUnit cu = StaticJavaParser.parse(sourceCode);
 
             // Extract package name
@@ -145,8 +159,7 @@ public class SessionAwareInstrumenter {
             output.write(instrumented);
             output.flush();
 
-            // Exit file
-            session.exitFile();
+            // Note: session.exitFile() is called by the caller (Instrumenter) after updateStatistics
 
             return structureInfo;
 
@@ -202,6 +215,31 @@ public class SessionAwareInstrumenter {
             checksum = checksum * 31 + source.charAt(i);
         }
         return checksum;
+    }
+
+    /**
+     * Maps SourceLevel enum to JavaParser's LanguageLevel.
+     *
+     * @param sourceLevel the Clover source level from config
+     * @return the corresponding JavaParser language level
+     */
+    private static ParserConfiguration.LanguageLevel mapSourceLevel(SourceLevel sourceLevel) {
+        if (sourceLevel == null) {
+            return ParserConfiguration.LanguageLevel.JAVA_17;
+        }
+        switch (sourceLevel) {
+            case JAVA_8: return ParserConfiguration.LanguageLevel.JAVA_8;
+            case JAVA_9: return ParserConfiguration.LanguageLevel.JAVA_9;
+            case JAVA_10: return ParserConfiguration.LanguageLevel.JAVA_10;
+            case JAVA_11: return ParserConfiguration.LanguageLevel.JAVA_11;
+            case JAVA_12: return ParserConfiguration.LanguageLevel.JAVA_12;
+            case JAVA_13: return ParserConfiguration.LanguageLevel.JAVA_13;
+            case JAVA_14: return ParserConfiguration.LanguageLevel.JAVA_14;
+            case JAVA_15: return ParserConfiguration.LanguageLevel.JAVA_15;
+            case JAVA_16: return ParserConfiguration.LanguageLevel.JAVA_16;
+            case JAVA_17: return ParserConfiguration.LanguageLevel.JAVA_17;
+            default: return ParserConfiguration.LanguageLevel.JAVA_17;
+        }
     }
 
     /**
@@ -304,35 +342,100 @@ public class SessionAwareInstrumenter {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration classDecl, List<Insertion> insertions) {
-            if (!classDecl.isInterface()) {
-                Optional<Position> begin = classDecl.getBegin();
-                Optional<Position> end = classDecl.getEnd();
+            Optional<Position> begin = classDecl.getBegin();
+            Optional<Position> end = classDecl.getEnd();
+            boolean isInterface = classDecl.isInterface();
 
-                if (begin.isPresent()) {
-                    // Register class with session
-                    String className = classDecl.getNameAsString();
-                    FixedSourceRegion region = new FixedSourceRegion(
-                            begin.get().line, begin.get().column,
-                            end.map(p -> p.line).orElse(begin.get().line),
-                            end.map(p -> p.column).orElse(begin.get().column));
+            if (begin.isPresent()) {
+                // Register ALL classes including interfaces (needed for parent stack)
+                String className = classDecl.getNameAsString();
+                FixedSourceRegion region = new FixedSourceRegion(
+                        begin.get().line, begin.get().column,
+                        end.map(p -> p.line).orElse(begin.get().line),
+                        end.map(p -> p.column).orElse(begin.get().column));
 
-                    // Build modifiers
-                    Modifiers mods = buildModifiers(classDecl);
+                // Build modifiers
+                Modifiers mods = buildModifiers(classDecl);
 
-                    session.enterClass(className, region, mods, false, false, false);
+                session.enterClass(className, region, mods, isInterface, false, false);
 
-                    // Inject recorder
-                    injectRecorder(classDecl, insertions);
-                }
+                // Inject recorder for all classes and interfaces
+                // Interfaces can have static inner classes since Java 8
+                injectRecorder(classDecl, insertions);
             }
 
             // Visit children
             super.visit(classDecl, insertions);
 
-            if (!classDecl.isInterface()) {
-                Optional<Position> end = classDecl.getEnd();
-                if (end.isPresent()) {
-                    session.exitClass(end.get().line, end.get().column);
+            if (begin.isPresent()) {
+                Optional<Position> endPos = classDecl.getEnd();
+                if (endPos.isPresent()) {
+                    session.exitClass(endPos.get().line, endPos.get().column);
+                }
+            }
+        }
+
+        @Override
+        public void visit(EnumDeclaration enumDecl, List<Insertion> insertions) {
+            Optional<Position> begin = enumDecl.getBegin();
+            Optional<Position> end = enumDecl.getEnd();
+
+            if (begin.isPresent()) {
+                // Register enum as class with session
+                String enumName = enumDecl.getNameAsString();
+                FixedSourceRegion region = new FixedSourceRegion(
+                        begin.get().line, begin.get().column,
+                        end.map(p -> p.line).orElse(begin.get().line),
+                        end.map(p -> p.column).orElse(begin.get().column));
+
+                // Build modifiers for enum
+                Modifiers mods = buildModifiers(enumDecl);
+
+                session.enterClass(enumName, region, mods, false, true, false);
+
+                // Inject recorder for enums (they can have methods)
+                injectRecorder(enumDecl, insertions);
+            }
+
+            // Visit children
+            super.visit(enumDecl, insertions);
+
+            if (begin.isPresent()) {
+                Optional<Position> endPos = enumDecl.getEnd();
+                if (endPos.isPresent()) {
+                    session.exitClass(endPos.get().line, endPos.get().column);
+                }
+            }
+        }
+
+        @Override
+        public void visit(AnnotationDeclaration annoDecl, List<Insertion> insertions) {
+            Optional<Position> begin = annoDecl.getBegin();
+            Optional<Position> end = annoDecl.getEnd();
+
+            if (begin.isPresent()) {
+                // Register annotation as class with session
+                String annoName = annoDecl.getNameAsString();
+                FixedSourceRegion region = new FixedSourceRegion(
+                        begin.get().line, begin.get().column,
+                        end.map(p -> p.line).orElse(begin.get().line),
+                        end.map(p -> p.column).orElse(begin.get().column));
+
+                // Build modifiers for annotation
+                Modifiers mods = buildModifiers(annoDecl);
+
+                session.enterClass(annoName, region, mods, false, false, true);
+
+                // Don't inject recorder for annotations (no methods with bodies)
+            }
+
+            // Visit children
+            super.visit(annoDecl, insertions);
+
+            if (begin.isPresent()) {
+                Optional<Position> endPos = annoDecl.getEnd();
+                if (endPos.isPresent()) {
+                    session.exitClass(endPos.get().line, endPos.get().column);
                 }
             }
         }
@@ -345,9 +448,8 @@ public class SessionAwareInstrumenter {
                 Optional<Position> end = methodDecl.getEnd();
 
                 if (begin.isPresent()) {
-                    // Build method signature
-                    String name = methodDecl.getNameAsString();
-                    MethodSignature sig = new MethodSignature(name);
+                    // Build method signature with modifiers and return type
+                    MethodSignature sig = buildMethodSignature(methodDecl);
 
                     FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
 
@@ -638,23 +740,64 @@ public class SessionAwareInstrumenter {
 
         /**
          * Injects the static recorder class inside the class body.
+         * Can be used for classes and enums.
          */
-        private void injectRecorder(ClassOrInterfaceDeclaration classDecl, List<Insertion> insertions) {
+        private void injectRecorder(TypeDeclaration<?> typeDecl, List<Insertion> insertions) {
             String recorderCode = generateRecorderCode();
 
-            if (!classDecl.getMembers().isEmpty()) {
-                Optional<Position> firstMemberPos = classDecl.getMembers().get(0).getBegin();
+            if (!typeDecl.getMembers().isEmpty()) {
+                Optional<Position> firstMemberPos = typeDecl.getMembers().get(0).getBegin();
                 if (firstMemberPos.isPresent()) {
                     Position pos = firstMemberPos.get();
                     insertions.add(Insertion.before(pos.line, pos.column, recorderCode, 0));
                 }
             } else {
-                Optional<Position> endPos = classDecl.getEnd();
+                Optional<Position> endPos = typeDecl.getEnd();
                 if (endPos.isPresent()) {
                     Position pos = endPos.get();
                     insertions.add(Insertion.before(pos.line, pos.column, recorderCode, 0));
                 }
             }
+        }
+
+        /**
+         * Builds modifiers from an enum declaration.
+         */
+        private Modifiers buildModifiers(EnumDeclaration enumDecl) {
+            long modMask = 0;
+            if (enumDecl.isPublic()) {
+                modMask |= Modifier.PUBLIC;
+            }
+            if (enumDecl.isPrivate()) {
+                modMask |= Modifier.PRIVATE;
+            }
+            if (enumDecl.isProtected()) {
+                modMask |= Modifier.PROTECTED;
+            }
+            if (enumDecl.isStatic()) {
+                modMask |= Modifier.STATIC;
+            }
+            return Modifiers.createFrom(modMask, null);
+        }
+
+        /**
+         * Builds modifiers from an annotation declaration.
+         */
+        private Modifiers buildModifiers(AnnotationDeclaration annoDecl) {
+            long modMask = 0;
+            if (annoDecl.isPublic()) {
+                modMask |= Modifier.PUBLIC;
+            }
+            if (annoDecl.isPrivate()) {
+                modMask |= Modifier.PRIVATE;
+            }
+            if (annoDecl.isProtected()) {
+                modMask |= Modifier.PROTECTED;
+            }
+            if (annoDecl.isStatic()) {
+                modMask |= Modifier.STATIC;
+            }
+            return Modifiers.createFrom(modMask, null);
         }
 
         /**
@@ -773,6 +916,47 @@ public class SessionAwareInstrumenter {
                 return "";
             }
             return s.replace(BACKSLASH, BACKSLASH + BACKSLASH).replace(QUOTE, BACKSLASH + QUOTE);
+        }
+
+        /**
+         * Builds a method signature from a JavaParser MethodDeclaration.
+         */
+        private MethodSignature buildMethodSignature(MethodDeclaration methodDecl) {
+            String name = methodDecl.getNameAsString();
+            String returnType = methodDecl.getTypeAsString();
+
+            // Build modifiers including the 'default' keyword for interface default methods
+            // Note: For interface methods, we only include explicit modifiers from the source
+            // JavaParser marks all interface methods as public/abstract implicitly, but we should
+            // only include these if they are explicitly written in the source
+            long modMask = 0;
+
+            // Only include public if it's not an interface method or if explicitly specified
+            // For now, check if it's in an interface by looking at parent - but this is tricky
+            // The simplest approach: include explicit modifiers from the AST
+            // JavaParser's modifiers include both explicit and implicit, so we use getModifiers()
+            NodeList<com.github.javaparser.ast.Modifier> explicitMods = methodDecl.getModifiers();
+            for (com.github.javaparser.ast.Modifier mod : explicitMods) {
+                switch (mod.getKeyword()) {
+                    case PUBLIC: modMask |= Modifier.PUBLIC; break;
+                    case PRIVATE: modMask |= Modifier.PRIVATE; break;
+                    case PROTECTED: modMask |= Modifier.PROTECTED; break;
+                    case ABSTRACT: modMask |= Modifier.ABSTRACT; break;
+                    case FINAL: modMask |= Modifier.FINAL; break;
+                    case STATIC: modMask |= Modifier.STATIC; break;
+                    case SYNCHRONIZED: modMask |= Modifier.SYNCHRONIZED; break;
+                    case NATIVE: modMask |= Modifier.NATIVE; break;
+                    case STRICTFP: modMask |= Modifier.STRICT; break;
+                    case DEFAULT: modMask |= ModifierExt.DEFAULT; break;
+                    default: break;
+                }
+            }
+
+            Modifiers mods = Modifiers.createFrom(modMask, null);
+
+            // For now, use simple constructor with name, returnType, and modifiers
+            // A full implementation would also extract parameters and type parameters
+            return new MethodSignature(name, "", returnType, new Parameter[0], new String[0], mods);
         }
 
         /**

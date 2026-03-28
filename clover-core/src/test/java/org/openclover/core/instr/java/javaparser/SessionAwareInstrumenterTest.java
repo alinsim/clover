@@ -30,6 +30,11 @@ public class SessionAwareInstrumenterTest {
     private static final String ASSERT_ONE_CLASS = "Should have 1 class";
     private static final String ASSERT_ONE_METHOD = "Should have 1 method";
     private static final String ASSERT_MULTIPLE_STATEMENTS = "Should have multiple statements";
+    private static final String ASSERT_FILE_STRUCTURE_NOT_NULL = "FileStructureInfo should not be null";
+    private static final String ASSERT_INSTRUMENTED_NOT_NULL = "Instrumented output should not be null";
+    private static final String ASSERT_CONTAINS_MARKER = "Should contain instrumentation marker";
+    private static final String MARKER_TEXT = "This file has been instrumented by OpenClover";
+    private static final String ASSERT_AT_LEAST_ONE_STATEMENT = "Should have at least 1 statement";
     private static final String METHOD_CLOSING = "    }\n";
 
     private File workingDir;
@@ -65,21 +70,22 @@ public class SessionAwareInstrumenterTest {
         FileStructureInfo structureInfo = SessionAwareInstrumenter.instrument(
                 source, output, session, config, null);
 
+        session.exitFile();
         session.close();
         registry.saveAndOverwriteFile();
 
-        assertNotNull("FileStructureInfo should not be null", structureInfo);
+        assertNotNull(ASSERT_FILE_STRUCTURE_NOT_NULL, structureInfo);
 
         String instrumented = output.toString();
-        assertNotNull("Instrumented output should not be null", instrumented);
-        assertTrue("Should contain instrumentation marker", instrumented.contains("This file has been instrumented by OpenClover"));
+        assertNotNull(ASSERT_INSTRUMENTED_NOT_NULL, instrumented);
+        assertTrue(ASSERT_CONTAINS_MARKER, instrumented.contains(MARKER_TEXT));
         assertTrue("Should contain recorder class", instrumented.contains(RECORDER_CLASS_PATTERN));
         assertTrue("Should contain R.inc() calls", instrumented.contains(INC_CALL_PATTERN));
 
         ProjectMetrics metrics = (ProjectMetrics) registry.getProject().getMetrics();
         assertEquals(ASSERT_ONE_CLASS, 1, metrics.getNumClasses());
         assertEquals(ASSERT_ONE_METHOD, 1, metrics.getNumMethods());
-        assertTrue("Should have at least 1 statement", metrics.getNumStatements() >= 1);
+        assertTrue(ASSERT_AT_LEAST_ONE_STATEMENT, metrics.getNumStatements() >= 1);
     }
 
     @Test
@@ -105,6 +111,7 @@ public class SessionAwareInstrumenterTest {
 
         SessionAwareInstrumenter.instrument(source, output, session, config, null);
 
+        session.exitFile();
         session.close();
         registry.saveAndOverwriteFile();
 
@@ -138,6 +145,7 @@ public class SessionAwareInstrumenterTest {
 
         SessionAwareInstrumenter.instrument(source, output, session, config, null);
 
+        session.exitFile();
         session.close();
         registry.saveAndOverwriteFile();
 
@@ -171,6 +179,7 @@ public class SessionAwareInstrumenterTest {
 
         SessionAwareInstrumenter.instrument(source, output, session, config, null);
 
+        session.exitFile();
         session.close();
         registry.saveAndOverwriteFile();
 
@@ -205,6 +214,7 @@ public class SessionAwareInstrumenterTest {
         FileStructureInfo structureInfo = SessionAwareInstrumenter.instrument(
                 source, output, session, config, null);
 
+        session.exitFile();
         session.close();
         registry.saveAndOverwriteFile();
 
@@ -242,6 +252,7 @@ public class SessionAwareInstrumenterTest {
 
         SessionAwareInstrumenter.instrument(source, output, session, config, null);
 
+        session.exitFile();
         session.close();
         registry.saveAndOverwriteFile();
 
@@ -265,6 +276,7 @@ public class SessionAwareInstrumenterTest {
 
         SessionAwareInstrumenter.instrument(source, output, session, config, null);
 
+        session.exitFile();
         session.close();
         registry.saveAndOverwriteFile();
 
@@ -274,6 +286,46 @@ public class SessionAwareInstrumenterTest {
         ProjectMetrics metrics = (ProjectMetrics) registry.getProject().getMetrics();
         assertEquals(ASSERT_ONE_CLASS, 1, metrics.getNumClasses());
         assertEquals("Should have 0 methods", 0, metrics.getNumMethods());
+    }
+
+    @Test
+    public void testInstrumentInterfaceWithDefaultMethods() throws Exception {
+        String sourceCode =
+                "import java.util.Iterator;\n" +
+                "public interface TestInterface extends Iterator {\n" +
+                "    default boolean isLast() {\n" +
+                "        return !hasNext();\n" +
+                METHOD_CLOSING +
+                "    void forwardToLast();\n" +
+                "}";
+
+        JavaInstrumentationConfig config = createConfig();
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test-project");
+
+        InstrumentationSession session = registry.startInstr(config.getEncoding());
+        StringWriter output = new StringWriter();
+
+        StringInstrumentationSource source = new StringInstrumentationSource(
+                new File(workingDir, "TestInterface.java"), sourceCode);
+
+        FileStructureInfo structureInfo = SessionAwareInstrumenter.instrument(
+                source, output, session, config, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        assertNotNull(ASSERT_FILE_STRUCTURE_NOT_NULL, structureInfo);
+
+        String instrumented = output.toString();
+        assertNotNull(ASSERT_INSTRUMENTED_NOT_NULL, instrumented);
+        assertTrue(ASSERT_CONTAINS_MARKER, instrumented.contains(MARKER_TEXT));
+        assertTrue("Should contain R.inc() calls for default method", instrumented.contains(INC_CALL_PATTERN));
+
+        ProjectMetrics metrics = (ProjectMetrics) registry.getProject().getMetrics();
+        assertEquals("Should have 1 interface", 1, metrics.getNumClasses());
+        assertEquals("Should have 1 default method", 1, metrics.getNumMethods());
+        assertTrue(ASSERT_AT_LEAST_ONE_STATEMENT, metrics.getNumStatements() >= 1);
     }
 
     /**

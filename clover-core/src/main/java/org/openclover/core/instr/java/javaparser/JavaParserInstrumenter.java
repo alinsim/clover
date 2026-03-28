@@ -4,9 +4,12 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
@@ -67,6 +70,12 @@ public class JavaParserInstrumenter {
      */
     public static String instrument(String sourceCode, String recorderPrefix,
                                      String initString, long registryVersion) {
+        // Guard against double instrumentation
+        if (sourceCode.startsWith(SourceRewriter.MARKER_PREFIX)) {
+            throw new IllegalArgumentException("Double instrumentation detected: " +
+                    "source appears to have already been instrumented by OpenClover.");
+        }
+
         configureParserForLatestJava();
         CompilationUnit cu = StaticJavaParser.parse(sourceCode);
 
@@ -194,10 +203,23 @@ public class JavaParserInstrumenter {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration classDecl, List<Insertion> insertions) {
-            if (!classDecl.isInterface()) {
-                injectRecorder(classDecl, insertions);
-            }
+            // Inject recorder for all classes and interfaces
+            // Interfaces can have static inner classes since Java 8
+            injectRecorder(classDecl, insertions);
             super.visit(classDecl, insertions);
+        }
+
+        @Override
+        public void visit(EnumDeclaration enumDecl, List<Insertion> insertions) {
+            // Inject recorder for enums (they can have methods)
+            injectRecorder(enumDecl, insertions);
+            super.visit(enumDecl, insertions);
+        }
+
+        @Override
+        public void visit(AnnotationDeclaration annoDecl, List<Insertion> insertions) {
+            // Don't inject recorder for annotations (no methods with bodies)
+            super.visit(annoDecl, insertions);
         }
 
         @Override
@@ -376,20 +398,21 @@ public class JavaParserInstrumenter {
         /**
          * Injects the static recorder class inside the class body.
          * Inserts before the first member, or before the closing brace for empty classes.
+         * Can be used for classes and enums.
          */
-        private void injectRecorder(ClassOrInterfaceDeclaration classDecl, List<Insertion> insertions) {
+        private void injectRecorder(TypeDeclaration<?> typeDecl, List<Insertion> insertions) {
             String recorderCode = generateRecorderCode();
 
-            if (!classDecl.getMembers().isEmpty()) {
+            if (!typeDecl.getMembers().isEmpty()) {
                 // Insert before the first member
-                Optional<Position> firstMemberPos = classDecl.getMembers().get(0).getBegin();
+                Optional<Position> firstMemberPos = typeDecl.getMembers().get(0).getBegin();
                 if (firstMemberPos.isPresent()) {
                     Position pos = firstMemberPos.get();
                     insertions.add(Insertion.before(pos.line, pos.column, recorderCode, 0));
                 }
             } else {
                 // Empty class — insert before the closing brace
-                Optional<Position> endPos = classDecl.getEnd();
+                Optional<Position> endPos = typeDecl.getEnd();
                 if (endPos.isPresent()) {
                     Position pos = endPos.get();
                     insertions.add(Insertion.before(pos.line, pos.column, recorderCode, 0));

@@ -227,6 +227,9 @@ public class Instrumenter {
             updateStatistics(fileInfo);
         }
 
+        // Exit the file after statistics have been collected
+        session.exitFile();
+
         return fileStructureInfo;
     }
 

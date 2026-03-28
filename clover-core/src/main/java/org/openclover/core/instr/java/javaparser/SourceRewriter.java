@@ -20,7 +20,11 @@ import java.util.List;
  */
 public class SourceRewriter {
 
-    private static final String MARKER_PREFIX = "/* $$ This file has been instrumented by OpenClover ";
+    /**
+     * The marker prefix used to identify instrumented files.
+     * Public to allow double instrumentation detection.
+     */
+    public static final String MARKER_PREFIX = "/* $$ This file has been instrumented by OpenClover ";
     private static final String MARKER_SUFFIX = " $$ */";
 
     /**
