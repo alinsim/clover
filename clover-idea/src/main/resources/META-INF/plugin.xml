@@ -1,0 +1,25 @@
+<idea-plugin>
+    <id>org.openclover.idea</id>
+    <name>OpenClover</name>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Application-level service: global plugin state and settings -->
+        <applicationService
+            serviceImplementation="org.openclover.idea.CloverApplicationService"/>
+
+        <!-- Project-level service: per-project coverage state -->
+        <projectService
+            serviceImplementation="org.openclover.idea.CloverProjectService"/>
+    </extensions>
+
+    <applicationListeners>
+        <!-- React to project open/close for coverage lifecycle -->
+    </applicationListeners>
+
+    <projectListeners>
+        <!-- React to file changes, compilation events, etc. -->
+    </projectListeners>
+</idea-plugin>
