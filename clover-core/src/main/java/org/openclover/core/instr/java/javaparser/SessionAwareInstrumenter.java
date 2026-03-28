@@ -8,7 +8,9 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.stmt.AssertStmt;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
@@ -225,6 +227,7 @@ public class SessionAwareInstrumenter {
     static class SessionAwareVisitor extends VoidVisitorAdapter<List<Insertion>> {
         private static final String INC_PREFIX = ".inc(";
         private static final String INC_SUFFIX = ");";
+        private static final String LAMBDA_INC_PREFIX = ".lambdaInc(";
 
         private final InstrumentationSession session;
         private final JavaInstrumentationConfig config;
@@ -521,10 +524,26 @@ public class SessionAwareInstrumenter {
                     // Block lambda: insert inc after opening brace (like method entry)
                     injectMethodEntry((BlockStmt) body, insertions);
                 } else {
-                    // Expression lambda: the body will be visited by super.visit() which
-                    // will instrument it via visit(ExpressionStmt). The method entry
-                    // was already registered above via enterMethod().
-                    // No additional instrumentation needed here - just let super.visit() handle the body.
+                    // Expression lambda: wrap with lambdaInc()
+                    Optional<Position> lambdaStart = lambda.getBegin();
+                    Optional<Position> lambdaEnd = lambda.getEnd();
+                    if (lambdaStart.isPresent() && lambdaEnd.isPresent() && isInstrumentationEnabled(lambdaStart.get().line)) {
+                        // Register statement for the lambda body
+                        FixedSourceRegion stmtRegion = new FixedSourceRegion(lambdaStart.get().line, lambdaStart.get().column);
+                        FullStatementInfo stmtInfo = session.addStatement(
+                                new ContextSetImpl(),
+                                stmtRegion,
+                                0,
+                                LanguageConstruct.Builtin.STATEMENT);
+
+                        int methodIndex = session.getCurrentOffsetFromFile() - 2; // method was registered earlier
+                        int stmtIndex = stmtInfo.getDataIndex();
+                        String recorderBase = extractRecorderBase();
+                        String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
+                        String suffix = "," + stmtIndex + ")";
+                        insertions.add(Insertion.before(lambdaStart.get().line, lambdaStart.get().column, prefix, 12));
+                        insertions.add(Insertion.after(lambdaEnd.get().line, lambdaEnd.get().column, suffix, 12));
+                    }
                 }
             }
 
@@ -536,12 +555,53 @@ public class SessionAwareInstrumenter {
         }
 
         @Override
+        public void visit(MethodReferenceExpr methodRef, List<Insertion> insertions) {
+            Optional<Position> start = methodRef.getBegin();
+            Optional<Position> end = methodRef.getEnd();
+            if (start.isPresent() && end.isPresent() && isInstrumentationEnabled(start.get().line)) {
+                // Register method for the method reference
+                FixedSourceRegion methodRegion = new FixedSourceRegion(start.get().line, start.get().column);
+                String methodRefName = "methodRef$" + lambdaCounter++;
+                MethodSignature sig = new MethodSignature(methodRefName);
+
+                session.enterMethod(
+                        new ContextSetImpl(),
+                        methodRegion,
+                        sig,
+                        false,
+                        null,
+                        true,
+                        1,
+                        LanguageConstruct.Builtin.METHOD);
+
+                // Register statement for the method reference body
+                FixedSourceRegion stmtRegion = new FixedSourceRegion(start.get().line, start.get().column);
+                FullStatementInfo stmtInfo = session.addStatement(
+                        new ContextSetImpl(),
+                        stmtRegion,
+                        0,
+                        LanguageConstruct.Builtin.STATEMENT);
+
+                int methodIndex = session.getCurrentOffsetFromFile() - 2;
+                int stmtIndex = stmtInfo.getDataIndex();
+                String recorderBase = extractRecorderBase();
+                String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
+                String suffix = "," + stmtIndex + ")";
+                insertions.add(Insertion.before(start.get().line, start.get().column, prefix, 12));
+                insertions.add(Insertion.after(end.get().line, end.get().column, suffix, 12));
+
+                session.exitMethod(end.get().line, end.get().column);
+            }
+            super.visit(methodRef, insertions);
+        }
+
+        @Override
         public void visit(TryStmt stmt, List<Insertion> insertions) {
             // Track try-with-resources entry
             if (!stmt.getResources().isEmpty()) {
                 Optional<Position> pos = stmt.getBegin();
                 if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
-                    // Register statement with session for the try-with-resources
+                    // Register statement with session for the try-with-resources entry
                     FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
                     FullStatementInfo stmtInfo = session.addStatement(
                             new ContextSetImpl(),
@@ -552,6 +612,25 @@ public class SessionAwareInstrumenter {
                     int index = stmtInfo.getDataIndex();
                     String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
                     insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
+
+                    // Add AutoCloseable wrapper that tracks cleanup
+                    Expression lastResource = stmt.getResources().get(stmt.getResources().size() - 1);
+                    Optional<Position> lastResEnd = lastResource.getEnd();
+                    if (lastResEnd.isPresent()) {
+                        // Register statement with session for the cleanup tracking
+                        FixedSourceRegion closeRegion = new FixedSourceRegion(lastResEnd.get().line, lastResEnd.get().column);
+                        FullStatementInfo closeStmtInfo = session.addStatement(
+                                new ContextSetImpl(),
+                                closeRegion,
+                                0,
+                                LanguageConstruct.Builtin.STATEMENT);
+
+                        int closeIndex = closeStmtInfo.getDataIndex();
+                        String autoCloseCode = ";AutoCloseable __CLR_resource_" + closeIndex +
+                            " = new AutoCloseable(){public void close(){" +
+                            recorderPrefix + INC_PREFIX + closeIndex + INC_SUFFIX + ";}}" ;
+                        insertions.add(Insertion.after(lastResEnd.get().line, lastResEnd.get().column, autoCloseCode, 20));
+                    }
                 }
             }
             super.visit(stmt, insertions);

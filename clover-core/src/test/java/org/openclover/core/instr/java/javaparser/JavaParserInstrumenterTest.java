@@ -16,6 +16,7 @@ public class JavaParserInstrumenterTest {
     private static final long REGISTRY_VERSION = 1L;
     private static final String OPENCLOVER_MARKER = "/* $$ This file has been instrumented by OpenClover";
     private static final String INC_PREFIX = "__CLR4_1_100hckkb3w8.R.inc(";
+    private static final String LAMBDA_INC_PREFIX = ".lambdaInc(";
     private static final String INC_0 = INC_PREFIX + "0)";
     private static final String INC_1 = INC_PREFIX + "1)";
     private static final String INC_2 = INC_PREFIX + "2)";
@@ -24,6 +25,12 @@ public class JavaParserInstrumenterTest {
     private static final String MSG_INC_1_LOOP = "Should contain inc(1) for loop body";
     private static final String MSG_INC_2_STMT = "Should contain inc(2) for statement";
     private static final String MSG_MULTIPLE_INC = "Should contain multiple inc calls";
+
+    private static final String IMPORT_FUNCTION = "import java.util.function.Function;\n";
+    private static final String IMPORT_IO_STREAMS = "import java.io.InputStream;\nimport java.io.FileInputStream;\n";
+    private static final String LAMBDA_FUNCTION_SOURCE = "class Foo {\n    void bar() {\n        Function<Integer, Integer> f = x -> x + 1;\n    }\n}";
+    private static final String TRY_WITH_RESOURCES_PREFIX = "class Foo {\n    void bar() throws Exception {\n        try (InputStream is = new FileInputStream(\"";
+    private static final String TRY_WITH_RESOURCES_SUFFIX = "f\")) {\n            is.read();\n        }\n    }\n}";
 
     @Test
     public void instrumentSimpleClassWithOneMethod() {
@@ -308,29 +315,50 @@ public class JavaParserInstrumenterTest {
 
     @Test
     public void instrumentExpressionLambda() {
-        String source = "import java.util.function.Function;\n"
-                + "class Foo {\n    void bar() {\n        Function<Integer, Integer> f = x -> x + 1;\n    }\n}";
+        String source = IMPORT_FUNCTION + LAMBDA_FUNCTION_SOURCE;
 
         String result = JavaParserInstrumenter.instrument(
                 source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
 
         assertTrue("Should instrument expression lambda", result.contains(INC_PREFIX));
         int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
-        // Method entry (1) + variable assignment (1) + lambda body expression (1) = 3
-        assertEquals("Should count method, assignment, and lambda expression", 3, count);
+        // Method entry (1) + variable assignment (1) + lambda method (1) + lambda statement (1) + lambdaInc wrapper (1) = 5
+        assertEquals("Should count method, assignment, lambda method, statement, and wrapper", 5, count);
     }
 
     @Test
     public void instrumentTryWithResources() {
-        String source = "import java.io.InputStream;\nimport java.io.FileInputStream;\n"
-                + "class Foo {\n    void bar() throws Exception {\n        try (InputStream is = new FileInputStream(\"f\")) {\n            is.read();\n        }\n    }\n}";
+        String source = IMPORT_IO_STREAMS + TRY_WITH_RESOURCES_PREFIX + TRY_WITH_RESOURCES_SUFFIX;
 
         String result = JavaParserInstrumenter.instrument(
                 source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
 
         assertTrue("Should instrument try-with-resources", result.contains(INC_PREFIX));
         int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
-        // Method entry (1) + try-with-resources entry (1) + read statement (1) = 3
-        assertEquals("Should count method, try-with-resources, and statement", 3, count);
+        // Method entry (1) + try-with-resources entry (1) + AutoCloseable cleanup (1) + read statement (1) = 4
+        assertEquals("Should count method, try-with-resources, cleanup, and statement", 4, count);
+    }
+
+    @Test
+    public void instrumentTryWithResourcesAutoCloseable() {
+        String source = IMPORT_IO_STREAMS + TRY_WITH_RESOURCES_PREFIX + TRY_WITH_RESOURCES_SUFFIX;
+        String result = JavaParserInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
+        assertTrue("Should contain AutoCloseable wrapper", result.contains("AutoCloseable __CLR_resource_"));
+        assertTrue("Should contain inc in close method", result.contains("public void close()"));
+    }
+
+    @Test
+    public void instrumentExpressionLambdaWithLambdaInc() {
+        String source = IMPORT_FUNCTION + LAMBDA_FUNCTION_SOURCE;
+        String result = JavaParserInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
+        assertTrue("Should wrap with lambdaInc", result.contains(LAMBDA_INC_PREFIX));
+    }
+
+    @Test
+    public void instrumentMethodReferenceWithLambdaInc() {
+        String source = "import java.util.List;\n"
+                + "class Foo {\n    void bar(List<String> items) {\n        items.forEach(System.out::println);\n    }\n}";
+        String result = JavaParserInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
+        assertTrue("Should wrap method reference with lambdaInc", result.contains(LAMBDA_INC_PREFIX));
     }
 }

@@ -8,7 +8,9 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.stmt.AssertStmt;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
@@ -117,6 +119,7 @@ public class JavaParserInstrumenter {
     static class CoverageInstrumentationVisitor extends VoidVisitorAdapter<List<Insertion>> {
         private static final String INC_PREFIX = ".inc(";
         private static final String INC_SUFFIX = ");";
+        private static final String LAMBDA_INC_PREFIX = ".lambdaInc(";
 
         private final String recorderPrefix;
         private final String initString;
@@ -310,11 +313,37 @@ public class JavaParserInstrumenter {
             if (body instanceof BlockStmt) {
                 // Block lambda: insert inc after opening brace (like method entry)
                 injectMethodEntry((BlockStmt) body, insertions);
+            } else {
+                // Expression lambda: wrap with lambdaInc()
+                Optional<Position> lambdaStart = lambda.getBegin();
+                Optional<Position> lambdaEnd = lambda.getEnd();
+                if (lambdaStart.isPresent() && lambdaEnd.isPresent() && isInstrumentationEnabled(lambdaStart.get().line)) {
+                    int methodIndex = indexCounter.getAndIncrement();
+                    int stmtIndex = indexCounter.getAndIncrement();
+                    String recorderBase = extractRecorderBase();
+                    String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
+                    String suffix = "," + stmtIndex + ")";
+                    insertions.add(Insertion.before(lambdaStart.get().line, lambdaStart.get().column, prefix, 12));
+                    insertions.add(Insertion.after(lambdaEnd.get().line, lambdaEnd.get().column, suffix, 12));
+                }
             }
-            // For expression lambdas: the body is an ExpressionStmt that will be
-            // visited and instrumented automatically by super.visit().
-            // No explicit instrumentation needed here.
             super.visit(lambda, insertions);
+        }
+
+        @Override
+        public void visit(MethodReferenceExpr methodRef, List<Insertion> insertions) {
+            Optional<Position> start = methodRef.getBegin();
+            Optional<Position> end = methodRef.getEnd();
+            if (start.isPresent() && end.isPresent() && isInstrumentationEnabled(start.get().line)) {
+                int methodIndex = indexCounter.getAndIncrement();
+                int stmtIndex = indexCounter.getAndIncrement();
+                String recorderBase = extractRecorderBase();
+                String prefix = recorderBase + LAMBDA_INC_PREFIX + methodIndex + ",";
+                String suffix = "," + stmtIndex + ")";
+                insertions.add(Insertion.before(start.get().line, start.get().column, prefix, 12));
+                insertions.add(Insertion.after(end.get().line, end.get().column, suffix, 12));
+            }
+            super.visit(methodRef, insertions);
         }
 
         @Override
@@ -323,9 +352,22 @@ public class JavaParserInstrumenter {
             if (!stmt.getResources().isEmpty()) {
                 Optional<Position> pos = stmt.getBegin();
                 if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
-                    int index = indexCounter.getAndIncrement();
-                    String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                    // Track try-with-resources entry
+                    int entryIndex = indexCounter.getAndIncrement();
+                    String incCode = recorderPrefix + INC_PREFIX + entryIndex + INC_SUFFIX;
                     insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
+
+                    // Add AutoCloseable wrapper that tracks cleanup
+                    Expression lastResource = stmt.getResources().get(stmt.getResources().size() - 1);
+                    Optional<Position> lastResEnd = lastResource.getEnd();
+                    if (lastResEnd.isPresent()) {
+                        int closeIndex = indexCounter.getAndIncrement();
+                        String recorderBase = extractRecorderBase();
+                        String autoCloseCode = ";AutoCloseable __CLR_resource_" + closeIndex +
+                            " = new AutoCloseable(){public void close(){" +
+                            recorderPrefix + INC_PREFIX + closeIndex + INC_SUFFIX + ";}}" ;
+                        insertions.add(Insertion.after(lastResEnd.get().line, lastResEnd.get().column, autoCloseCode, 20));
+                    }
                 }
             }
             super.visit(stmt, insertions);
