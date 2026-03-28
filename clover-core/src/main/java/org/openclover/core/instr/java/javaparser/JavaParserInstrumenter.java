@@ -15,6 +15,7 @@ import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.stmt.AssertStmt;
@@ -487,15 +488,16 @@ public class JavaParserInstrumenter {
                 super.visit(lambda, insertions);
             } else {
                 // Expression lambda: rewrite to block form
-                // x -> expr  →  x -> {R.inc(N); return expr;}
+                // Value-returning: x -> expr  →  x -> {R.inc(N); return expr;}
+                // Void (method call): () -> println()  →  () -> {R.inc(N); println();}
                 Optional<Position> bodyStart = body.getBegin();
                 Optional<Position> bodyEnd = body.getEnd();
                 if (bodyStart.isPresent() && bodyEnd.isPresent() && isInstrumentationEnabled(bodyStart.get().line)) {
                     int index = indexCounter.getAndIncrement();
                     String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
-                    // Insert {R.inc(N);return  before the expression
-                    String prefix = "{" + incCode + "return ";
-                    // Insert ;} after the expression
+                    // Use 'return' for value expressions, omit for method calls (might be void)
+                    boolean needsReturn = !isLikelyVoidExpression(body);
+                    String prefix = "{" + incCode + (needsReturn ? "return " : "");
                     String suffix = ";}";
                     insertions.add(Insertion.before(bodyStart.get().line, bodyStart.get().column, prefix, 10));
                     insertions.add(Insertion.after(bodyEnd.get().line, bodyEnd.get().column, suffix, 10));
@@ -508,6 +510,21 @@ public class JavaParserInstrumenter {
         public void visit(MethodReferenceExpr methodRef, List<Insertion> insertions) {
             wrapWithLambdaInc(methodRef, insertions);
             super.visit(methodRef, insertions);
+        }
+
+        /**
+         * Returns true if the statement body of an expression lambda is likely a void
+         * expression (method call). Without type resolution, we use a heuristic: if the
+         * body is an ExpressionStmt containing a MethodCallExpr, it's likely void
+         * (Consumer, Runnable, event handler patterns). For other expressions (literals,
+         * arithmetic, constructor calls), we assume value-returning.
+         */
+        private boolean isLikelyVoidExpression(Statement body) {
+            if (body instanceof ExpressionStmt) {
+                Expression expr = ((ExpressionStmt) body).getExpression();
+                return expr instanceof MethodCallExpr;
+            }
+            return false;
         }
 
         /**
