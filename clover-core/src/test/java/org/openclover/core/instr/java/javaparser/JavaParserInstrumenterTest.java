@@ -3,7 +3,6 @@ package org.openclover.core.instr.java.javaparser;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -323,15 +322,12 @@ public class JavaParserInstrumenterTest {
                 source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
 
         assertTrue("Should instrument expression lambda", result.contains(INC_PREFIX));
-        assertTrue("Should rewrite to block form with opening brace", result.contains("x -> {"));
-        assertTrue("Should contain return statement", result.contains("return x + 1;"));
-        assertTrue("Should contain closing brace", result.contains(";}"));
-        // The lambdaInc method is still generated (for method references), but should not be CALLED
-        // Check that the lambda is not wrapped: "f = lambdaInc(" would indicate wrapping
-        assertFalse("Should NOT wrap expression lambda with lambdaInc", result.contains("f = " + LAMBDA_INC_PREFIX));
+        // Expression lambda in variable initializer: wrapped with lambdaInc
+        assertTrue("Should wrap with lambdaInc in variable initializer",
+                result.contains(LAMBDA_INC_PREFIX));
         int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
-        // Method entry (1) + variable assignment (1) + lambda body R.inc (1) = 3
-        assertEquals("Should count method, assignment, and lambda body indices", 3, count);
+        // Method entry (1) + variable assignment (1) + lambdaInc method+stmt indices (2) = 4
+        assertEquals("Should count method, assignment, and lambdaInc indices", 4, count);
     }
 
     @Test

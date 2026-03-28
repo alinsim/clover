@@ -17,7 +17,6 @@ import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
-import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.stmt.CatchClause;
@@ -868,21 +867,10 @@ public class SessionAwareInstrumenter {
                     injectMethodEntry((BlockStmt) body, insertions);
                     ((BlockStmt) body).accept(this, insertions);
                 } else {
-                    // Expression lambda: rewrite to block form
-                    // Value-returning: x -> expr  →  x -> {R.inc(N); return expr;}
-                    // Void (method call): () -> println()  →  () -> {R.inc(N); println();}
-                    Optional<Position> bodyStart = body.getBegin();
-                    Optional<Position> bodyEnd = body.getEnd();
-                    if (bodyStart.isPresent() && bodyEnd.isPresent() && isInstrumentationEnabled(bodyStart.get().line)) {
-                        int index = session.getCurrentOffsetFromFile() - 1;
-                        String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
-                        boolean needsReturn = !isLikelyVoidExpression(body);
-                        String prefix = "{" + incCode + (needsReturn ? "return " : "");
-                        String suffix = ";}";
-                        insertions.add(Insertion.before(bodyStart.get().line, bodyStart.get().column, prefix, 10));
-                        insertions.add(Insertion.after(bodyEnd.get().line, bodyEnd.get().column, suffix, 10));
-                    }
-                    // No super.visit() — statements inside expression are covered by the rewrite
+                    // Expression lambda: wrap with lambdaInc() in safe contexts only.
+                    // Block rewriting doesn't work — expression lambdas have different
+                    // type-checking rules than block lambdas in Java.
+                    wrapWithLambdaIncSession(lambda, insertions);
                 }
             }
 
@@ -912,14 +900,6 @@ public class SessionAwareInstrumenter {
             if (begin.isPresent() && end.isPresent()) {
                 session.exitMethod(end.get().line, end.get().column);
             }
-        }
-
-        private boolean isLikelyVoidExpression(Statement body) {
-            if (body instanceof ExpressionStmt) {
-                Expression expr = ((ExpressionStmt) body).getExpression();
-                return expr instanceof MethodCallExpr;
-            }
-            return false;
         }
 
         private boolean isSafeForLambdaIncWrapping(Expression expr) {
