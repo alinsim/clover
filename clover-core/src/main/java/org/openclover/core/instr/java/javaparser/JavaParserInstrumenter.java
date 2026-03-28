@@ -395,18 +395,60 @@ public class JavaParserInstrumenter {
                 injectMethodEntry((BlockStmt) body, insertions);
                 super.visit(lambda, insertions);
             } else {
-                // Expression lambda: cannot safely wrap with lambdaInc() due to type inference issues
-                // (breaks when generic type parameters are declared on methods, not classes)
-                // Skip instrumentation for expression lambdas
-                // Note: Statement count still incremented for compatibility with existing tests
+                // Expression lambda: wrap with lambdaInc() if safe
+                wrapWithLambdaInc(lambda, insertions);
+                // No super.visit() — lambdaInc already tracks invocation
             }
         }
 
         @Override
         public void visit(MethodReferenceExpr methodRef, List<Insertion> insertions) {
-            // Method references can't be reliably wrapped with lambdaInc
-            // without breaking type inference. Skip instrumentation.
+            wrapWithLambdaInc(methodRef, insertions);
             super.visit(methodRef, insertions);
+        }
+
+        /**
+         * Returns true if the expression is in a context where lambdaInc wrapping is safe.
+         * Safe: variable initializer (Execute e = lambda), assignment (e = lambda).
+         * Unsafe: method arguments, casts, returns, ternary — wrapping breaks type inference.
+         */
+        private boolean isSafeForLambdaIncWrapping(Expression expr) {
+            if (!expr.getParentNode().isPresent()) {
+                return false;
+            }
+            Node parent = expr.getParentNode().get();
+            // Safe: variable initializer (VariableDeclarator)
+            if (parent.getClass().getSimpleName().equals("VariableDeclarator")) {
+                return true;
+            }
+            // Safe: assignment expression (AssignExpr)
+            if (parent.getClass().getSimpleName().equals("AssignExpr")) {
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Wraps an expression (lambda or method reference) with lambdaInc() for coverage tracking.
+         * Only wraps in safe contexts (variable initializer, assignment).
+         */
+        private void wrapWithLambdaInc(Expression expr, List<Insertion> insertions) {
+            Optional<Position> start = expr.getBegin();
+            Optional<Position> end = expr.getEnd();
+            if (!start.isPresent() || !end.isPresent() || !isInstrumentationEnabled(start.get().line)) {
+                return;
+            }
+            // Only wrap in safe contexts (variable initializer, assignment).
+            // Skip method arguments, casts, returns, ternary — wrapping breaks type inference.
+            if (!isSafeForLambdaIncWrapping(expr)) {
+                return;
+            }
+            int methodIndex = indexCounter.getAndIncrement();
+            int stmtIndex = indexCounter.getAndIncrement();
+            String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
+            String suffix = "," + stmtIndex + ")";
+            insertions.add(Insertion.before(start.get().line, start.get().column, prefix, 12));
+            insertions.add(Insertion.after(end.get().line, end.get().column, suffix, 12));
         }
 
         @Override

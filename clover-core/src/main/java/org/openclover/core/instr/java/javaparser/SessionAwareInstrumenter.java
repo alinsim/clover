@@ -810,25 +810,10 @@ public class SessionAwareInstrumenter {
                 if (body instanceof BlockStmt) {
                     // Block lambda: insert inc after opening brace (like method entry)
                     injectMethodEntry((BlockStmt) body, insertions);
-                    // Explicitly visit the block body to ensure statements inside are registered
                     ((BlockStmt) body).accept(this, insertions);
                 } else {
-                    // Expression lambda: cannot safely wrap with lambdaInc() due to type inference issues
-                    // (breaks when generic type parameters are declared on methods, not classes)
-                    // Register the statement for coverage model but skip instrumentation
-                    Optional<Position> lambdaStart = lambda.getBegin();
-                    Optional<Position> lambdaEnd = lambda.getEnd();
-                    if (lambdaStart.isPresent() && lambdaEnd.isPresent()) {
-                        // Always register statement (even in CLOVER:OFF) for coverage model
-                        FixedSourceRegion stmtRegion = new FixedSourceRegion(lambdaStart.get().line, lambdaStart.get().column);
-                        session.addStatement(
-                                new ContextSetImpl(),
-                                stmtRegion,
-                                0,
-                                LanguageConstruct.Builtin.STATEMENT);
-                        // Note: No instrumentation inserted - expression lambdas can't be reliably instrumented
-                        // without breaking Java's type inference in generic contexts
-                    }
+                    // Expression lambda: wrap with lambdaInc() if safe
+                    wrapWithLambdaIncSession(lambda, insertions);
                 }
             }
 
@@ -839,9 +824,65 @@ public class SessionAwareInstrumenter {
 
         @Override
         public void visit(MethodReferenceExpr methodRef, List<Insertion> insertions) {
-            // Method references can't be reliably wrapped with lambdaInc
-            // without breaking type inference. Skip instrumentation.
+            Optional<Position> begin = methodRef.getBegin();
+            Optional<Position> end = methodRef.getEnd();
+
+            if (begin.isPresent()) {
+                String refName = "methodRef$" + lambdaCounter++;
+                MethodSignature sig = new MethodSignature(refName);
+                FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
+
+                session.enterMethod(new ContextSetImpl(), region, sig, false, null, true, 1,
+                        LanguageConstruct.Builtin.METHOD);
+
+                wrapWithLambdaIncSession(methodRef, insertions);
+            }
+
             super.visit(methodRef, insertions);
+
+            if (begin.isPresent() && end.isPresent()) {
+                session.exitMethod(end.get().line, end.get().column);
+            }
+        }
+
+        private boolean isSafeForLambdaIncWrapping(Expression expr) {
+            if (!expr.getParentNode().isPresent()) {
+                return false;
+            }
+            Node parent = expr.getParentNode().get();
+            if (parent.getClass().getSimpleName().equals("VariableDeclarator")) {
+                return true;
+            }
+            if (parent.getClass().getSimpleName().equals("AssignExpr")) {
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Wraps an expression with lambdaInc() using session-allocated indices.
+         * Only wraps in safe contexts (variable initializer, assignment).
+         */
+        private void wrapWithLambdaIncSession(Expression expr, List<Insertion> insertions) {
+            Optional<Position> start = expr.getBegin();
+            Optional<Position> end = expr.getEnd();
+            if (!start.isPresent() || !end.isPresent() || !isInstrumentationEnabled(start.get().line)) {
+                return;
+            }
+            if (!isSafeForLambdaIncWrapping(expr)) {
+                return;
+            }
+            FixedSourceRegion stmtRegion = new FixedSourceRegion(start.get().line, start.get().column);
+            FullStatementInfo stmtInfo = session.addStatement(
+                    new ContextSetImpl(), stmtRegion, 0, LanguageConstruct.Builtin.STATEMENT);
+
+            int methodIndex = session.getCurrentOffsetFromFile() - 2;
+            int stmtIndex = stmtInfo.getDataIndex();
+            String recorderBase = extractRecorderBase();
+            String prefix = LAMBDA_INC_PREFIX + methodIndex + ",";
+            String suffix = "," + stmtIndex + ")";
+            insertions.add(Insertion.before(start.get().line, start.get().column, prefix, 12));
+            insertions.add(Insertion.after(end.get().line, end.get().column, suffix, 12));
         }
 
         @Override

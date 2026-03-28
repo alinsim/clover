@@ -323,9 +323,8 @@ public class JavaParserInstrumenterTest {
 
         assertTrue("Should instrument expression lambda", result.contains(INC_PREFIX));
         int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
-        // Method entry (1) + variable assignment (1) = 2
-        // Expression lambdas are NOT wrapped (breaks type inference), only block lambdas get instrumented
-        assertEquals("Should count method entry and assignment", 2, count);
+        // Method entry (1) + variable assignment (1) + lambdaInc method index (1) + lambdaInc stmt index (1) = 4
+        assertEquals("Should count method, assignment, and lambdaInc indices", 4, count);
     }
 
     @Test
