@@ -998,6 +998,12 @@ public class SessionAwareInstrumenter {
          * Can be used for classes and enums.
          */
         private void injectRecorder(TypeDeclaration<?> typeDecl, List<Insertion> insertions) {
+            // Only set recorder position for the first (outermost) class.
+            // Inner/nested classes should not overwrite — the recorder must be
+            // at the outermost scope so all methods can reference it.
+            if (recorderLine >= 0) {
+                return;
+            }
             if (!typeDecl.getMembers().isEmpty()) {
                 Optional<Position> firstMemberPos = typeDecl.getMembers().get(0).getBegin();
                 if (firstMemberPos.isPresent()) {
