@@ -50,12 +50,15 @@ import org.openclover.core.registry.entities.MethodSignature;
 import org.openclover.core.registry.entities.Modifiers;
 import org.openclover.core.registry.entities.Parameter;
 import org.openclover.core.spi.lang.LanguageConstruct;
+import org.openclover.core.util.UnicodeDecodingReader;
+import org.openclover.core.util.UnicodeEncodingWriter;
 import org.openclover.runtime.CloverNames;
 import org.openclover.runtime.api.CloverException;
 import org_openclover_runtime.Clover;
 import org_openclover_runtime.CoverageRecorder;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.Writer;
 import java.lang.reflect.Modifier;
@@ -158,9 +161,10 @@ public class SessionAwareInstrumenter {
             String instrumented = SourceRewriter.rewrite(sourceCode, insertions);
             instrumented = SourceRewriter.addMarker(instrumented);
 
-            // Write output
-            output.write(instrumented);
-            output.flush();
+            // Write output with Unicode encoding
+            Writer unicodeWriter = new UnicodeEncodingWriter(new BufferedWriter(output));
+            unicodeWriter.write(instrumented);
+            unicodeWriter.flush();
 
             // Note: session.exitFile() is called by the caller (Instrumenter) after updateStatistics
 
@@ -172,11 +176,12 @@ public class SessionAwareInstrumenter {
     }
 
     /**
-     * Reads the source into a string.
+     * Reads the source into a string, handling Unicode escapes.
      */
     private static String readSource(InstrumentationSource source) throws IOException {
         StringBuilder sb = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(source.createReader())) {
+        try (BufferedReader reader = new BufferedReader(
+                new UnicodeDecodingReader(source.createReader()))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 sb.append(line).append("\n");
