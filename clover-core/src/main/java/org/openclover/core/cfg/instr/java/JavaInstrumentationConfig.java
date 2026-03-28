@@ -23,6 +23,9 @@ public class JavaInstrumentationConfig extends InstrumentationConfig {
 
     private LambdaInstrumentation instrumentLambda = LambdaInstrumentation.NONE;
 
+    /** If true, use JavaParser for instrumentation instead of ANTLR */
+    private boolean useJavaParser = false;
+
     /** Used by CloverInstr */
     private File sourceDir;
 
@@ -65,6 +68,14 @@ public class JavaInstrumentationConfig extends InstrumentationConfig {
 
     public LambdaInstrumentation getInstrumentLambda() {
         return instrumentLambda;
+    }
+
+    public boolean isUseJavaParser() {
+        return useJavaParser;
+    }
+
+    public void setUseJavaParser(boolean useJavaParser) {
+        this.useJavaParser = useJavaParser;
     }
 
     public void setSourceDir(File sourceDir) {

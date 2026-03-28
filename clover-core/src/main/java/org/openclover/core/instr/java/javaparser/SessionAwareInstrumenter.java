@@ -7,6 +7,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.stmt.AssertStmt;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
@@ -20,6 +21,7 @@ import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.SwitchEntry;
 import com.github.javaparser.ast.stmt.ThrowStmt;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.jetbrains.annotations.NotNull;
@@ -227,6 +229,7 @@ public class SessionAwareInstrumenter {
         private final String initString;
         private final long registryVersion;
         private final List<DisabledRange> disabledRanges;
+        private int lambdaCounter;
 
         SessionAwareVisitor(InstrumentationSession session, JavaInstrumentationConfig config,
                            String recorderPrefix, String initString, long registryVersion) {
@@ -236,6 +239,7 @@ public class SessionAwareInstrumenter {
             this.initString = initString;
             this.registryVersion = registryVersion;
             this.disabledRanges = new ArrayList<>();
+            this.lambdaCounter = 0;
         }
 
         /**
@@ -483,6 +487,71 @@ public class SessionAwareInstrumenter {
                 }
             }
             super.visit(entry, insertions);
+        }
+
+        @Override
+        public void visit(LambdaExpr lambda, List<Insertion> insertions) {
+            Optional<Position> begin = lambda.getBegin();
+            Optional<Position> end = lambda.getEnd();
+
+            if (begin.isPresent()) {
+                Statement body = lambda.getBody();
+
+                // Build lambda signature
+                String lambdaName = "lambda$" + lambdaCounter++;
+                MethodSignature sig = new MethodSignature(lambdaName);
+
+                FixedSourceRegion region = new FixedSourceRegion(begin.get().line, begin.get().column);
+
+                // Register lambda as a method with isLambda=true
+                session.enterMethod(
+                        new ContextSetImpl(),
+                        region,
+                        sig,
+                        false,
+                        null,
+                        true,
+                        1,
+                        LanguageConstruct.Builtin.METHOD);
+
+                if (body instanceof BlockStmt) {
+                    // Block lambda: insert inc after opening brace (like method entry)
+                    injectMethodEntry((BlockStmt) body, insertions);
+                } else {
+                    // Expression lambda: the body will be visited by super.visit() which
+                    // will instrument it via visit(ExpressionStmt). The method entry
+                    // was already registered above via enterMethod().
+                    // No additional instrumentation needed here - just let super.visit() handle the body.
+                }
+            }
+
+            super.visit(lambda, insertions);
+
+            if (end.isPresent()) {
+                session.exitMethod(end.get().line, end.get().column);
+            }
+        }
+
+        @Override
+        public void visit(TryStmt stmt, List<Insertion> insertions) {
+            // Track try-with-resources entry
+            if (!stmt.getResources().isEmpty()) {
+                Optional<Position> pos = stmt.getBegin();
+                if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
+                    // Register statement with session for the try-with-resources
+                    FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
+                    FullStatementInfo stmtInfo = session.addStatement(
+                            new ContextSetImpl(),
+                            region,
+                            0,
+                            LanguageConstruct.Builtin.STATEMENT);
+
+                    int index = stmtInfo.getDataIndex();
+                    String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                    insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
+                }
+            }
+            super.visit(stmt, insertions);
         }
 
         /**

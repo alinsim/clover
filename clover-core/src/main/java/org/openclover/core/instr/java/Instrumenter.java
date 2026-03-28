@@ -14,9 +14,9 @@ import org.openclover.core.context.ContextStore;
 import org.openclover.core.context.MethodRegexpContext;
 import org.openclover.core.context.NamedContext;
 import org.openclover.core.context.StatementRegexpContext;
+import org.openclover.core.instr.java.javaparser.SessionAwareInstrumenter;
 import org.openclover.core.registry.Clover2Registry;
 import org.openclover.core.registry.entities.FullFileInfo;
-import org.openclover.core.registry.entities.FullPackageInfo;
 import org.openclover.core.registry.metrics.FileMetrics;
 import org.openclover.core.util.ChecksummingReader;
 import org.openclover.core.util.CloverUtils;
@@ -43,6 +43,9 @@ import java.util.Set;
 import static org.openclover.core.util.Sets.newHashSet;
 
 public class Instrumenter {
+    private static final String SPACE_OPEN_PAREN = " (";
+    private static final String COMMA_ID_EQUALS = ", id=";
+
     private final JavaInstrumentationConfig config;
     private final Logger log;
 
@@ -188,6 +191,11 @@ public class Instrumenter {
                                         final @Nullable String fileEncoding)
             throws TokenStreamException, IOException, RecognitionException, CloverException {
 
+        // Delegate to JavaParser if configured
+        if (config.isUseJavaParser()) {
+            return instrumentWithJavaParser(in, out, fileEncoding);
+        }
+
         // open input stream, check if file was not instrumented already
         final BufferedReader bin = new BufferedReader(in.createReader()); // will be closed by checksummingReader.close()
         CloverTokenStreamFilter.guardAgainstDoubleInstrumentation(in.getSourceFileLocation(), bin);
@@ -256,6 +264,38 @@ public class Instrumenter {
         return stringWriter.toString();
     }
 
+    /**
+     * Instruments a source file using JavaParser instead of ANTLR.
+     * This method is called when config.isUseJavaParser() returns true.
+     *
+     * @param in the input source to instrument
+     * @param out the destination writer
+     * @param fileEncoding encoding of the file being instrumented, a <code>null</code> value means undefined
+     * @return FileStructureInfo - file reference to the instrumented version
+     * @throws IOException if reading or writing fails
+     * @throws CloverException if instrumentation fails
+     */
+    private FileStructureInfo instrumentWithJavaParser(final @NotNull InstrumentationSource in,
+                                                       final @NotNull Writer out,
+                                                       final @Nullable String fileEncoding)
+            throws IOException, CloverException {
+
+        // Set source encoding for the session
+        session.setSourceEncoding(fileEncoding);
+
+        // Delegate to SessionAwareInstrumenter
+        final FileStructureInfo fileStructureInfo = SessionAwareInstrumenter.instrument(
+                in, out, session, config, fileEncoding);
+
+        // Update statistics to match ANTLR path behavior
+        final FullFileInfo fileInfo = (FullFileInfo) session.getCurrentFile();
+        if (fileInfo != null) {
+            updateStatistics(fileInfo);
+        }
+
+        return fileStructureInfo;
+    }
+
     public Clover2Registry endInstrumentation() throws CloverException {
         return endInstrumentation(false);
     }
@@ -273,14 +313,14 @@ public class Instrumenter {
             int pkgs = packages.size();
             log.info("OpenClover instrumented "
                     + numFiles + Formatting.pluralizedWord(numFiles, " file")
-                    + " ("+ pkgs + Formatting.pluralizedWord(pkgs, " package")
+                    + SPACE_OPEN_PAREN + pkgs + Formatting.pluralizedWord(pkgs, " package")
                     + ").");
 
             if (numTestMethods > 0) {
                 log.info(numTestMethods + " test method" + (numTestMethods != 1 ? "s" : "") + " detected.");
             }
             log.debug("Elapsed time = " + Formatting.format3d(secs) + " secs." +
-                    (secs > 0 ?  " (" + Formatting.format3d((double)numFiles / secs) + " files/sec, " +
+                    (secs > 0 ? SPACE_OPEN_PAREN + Formatting.format3d((double)numFiles / secs) + " files/sec, " +
                             Formatting.format3d((double)loc/secs)+" srclines/sec)" : ""));
             return registry;
         }
@@ -322,7 +362,7 @@ public class Instrumenter {
             for (MethodRegexpContext ctx : contexts.getMethodContexts()) {
                 if (ctx.matches(marker)) {
                     addContextToMarker(ctx, marker);
-                    log.debug("Method context match, line " + marker.getStart().getLine() + ", id=" + ctx.getName());
+                    log.debug("Method context match, line " + marker.getStart().getLine() + COMMA_ID_EQUALS + ctx.getName());
                 }
             }
         }
@@ -332,7 +372,7 @@ public class Instrumenter {
             for (StatementRegexpContext ctx : contexts.getStatementContexts()) {
                 if (ctx.matches(marker)) {
                     addContextToMarker(ctx, marker);
-                    log.debug("Statement context match, line " + marker.getStart().getLine() + ", id=" + ctx.getName());
+                    log.debug("Statement context match, line " + marker.getStart().getLine() + COMMA_ID_EQUALS + ctx.getName());
                 }
             }
         }

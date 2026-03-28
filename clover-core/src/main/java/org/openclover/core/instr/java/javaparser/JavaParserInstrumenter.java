@@ -7,6 +7,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.stmt.AssertStmt;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
@@ -20,6 +21,7 @@ import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.SwitchEntry;
 import com.github.javaparser.ast.stmt.ThrowStmt;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 
@@ -287,6 +289,33 @@ public class JavaParserInstrumenter {
                 }
             }
             super.visit(entry, insertions);
+        }
+
+        @Override
+        public void visit(LambdaExpr lambda, List<Insertion> insertions) {
+            Statement body = lambda.getBody();
+            if (body instanceof BlockStmt) {
+                // Block lambda: insert inc after opening brace (like method entry)
+                injectMethodEntry((BlockStmt) body, insertions);
+            }
+            // For expression lambdas: the body is an ExpressionStmt that will be
+            // visited and instrumented automatically by super.visit().
+            // No explicit instrumentation needed here.
+            super.visit(lambda, insertions);
+        }
+
+        @Override
+        public void visit(TryStmt stmt, List<Insertion> insertions) {
+            // Track try-with-resources entry
+            if (!stmt.getResources().isEmpty()) {
+                Optional<Position> pos = stmt.getBegin();
+                if (pos.isPresent() && isInstrumentationEnabled(pos.get().line)) {
+                    int index = indexCounter.getAndIncrement();
+                    String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                    insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
+                }
+            }
+            super.visit(stmt, insertions);
         }
 
         /**

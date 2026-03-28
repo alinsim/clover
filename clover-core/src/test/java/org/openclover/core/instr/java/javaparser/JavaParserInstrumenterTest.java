@@ -291,4 +291,46 @@ public class JavaParserInstrumenterTest {
         // Method entry (1) + assert statement (1) = 2
         assertEquals("Should count method entry and assert", 2, count);
     }
+
+    @Test
+    public void instrumentBlockLambda() {
+        String source = "class Foo {\n    void bar() {\n        Runnable r = () -> {\n            System.out.println(\"hello\");\n        };\n    }\n}";
+
+        String result = JavaParserInstrumenter.instrument(
+                source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
+
+        // Should have method entry + variable assignment + lambda entry + statement inside lambda
+        assertTrue("Should contain multiple inc calls for lambda", result.contains(INC_PREFIX));
+        int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
+        // Method entry (1) + variable assignment (1) + lambda entry (1) + println statement (1) = 4
+        assertEquals("Should count method, assignment, lambda entry, and statement", 4, count);
+    }
+
+    @Test
+    public void instrumentExpressionLambda() {
+        String source = "import java.util.function.Function;\n"
+                + "class Foo {\n    void bar() {\n        Function<Integer, Integer> f = x -> x + 1;\n    }\n}";
+
+        String result = JavaParserInstrumenter.instrument(
+                source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
+
+        assertTrue("Should instrument expression lambda", result.contains(INC_PREFIX));
+        int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
+        // Method entry (1) + variable assignment (1) + lambda body expression (1) = 3
+        assertEquals("Should count method, assignment, and lambda expression", 3, count);
+    }
+
+    @Test
+    public void instrumentTryWithResources() {
+        String source = "import java.io.InputStream;\nimport java.io.FileInputStream;\n"
+                + "class Foo {\n    void bar() throws Exception {\n        try (InputStream is = new FileInputStream(\"f\")) {\n            is.read();\n        }\n    }\n}";
+
+        String result = JavaParserInstrumenter.instrument(
+                source, RECORDER_PREFIX, INIT_STRING, REGISTRY_VERSION);
+
+        assertTrue("Should instrument try-with-resources", result.contains(INC_PREFIX));
+        int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
+        // Method entry (1) + try-with-resources entry (1) + read statement (1) = 3
+        assertEquals("Should count method, try-with-resources, and statement", 3, count);
+    }
 }
