@@ -3,6 +3,8 @@ package org.openclover.idea
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.openapi.util.Disposer
+import org.openclover.idea.editor.CoverageEditorAnnotator
 
 /**
  * Runs when a project is opened and initialized.
@@ -22,6 +24,11 @@ class CloverProjectActivity : ProjectActivity {
 
         thisLogger().info("OpenClover activating for project: ${project.name}")
 
+        // Start editor coverage annotations
+        val editorAnnotator = CoverageEditorAnnotator(project, service.coroutineScope)
+        Disposer.register(service, editorAnnotator)
+        editorAnnotator.start()
+
         // Load coverage data
         val coverageManager = service.coverageManager
         coverageManager.reload()
@@ -31,7 +38,6 @@ class CloverProjectActivity : ProjectActivity {
             coverageManager.startAutoRefresh()
         }
 
-        // TODO (.6): Register editor coverage annotations
         // TODO (.7): Register tool window
         // TODO (.10): Register build system hooks
     }
