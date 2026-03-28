@@ -3,11 +3,18 @@ package org.openclover.core.instr.java;
 import org.openclover.core.api.registry.ContextSet;
 
 /**
- * A helper class used in java.g
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-class ContextSetAndComplexity {
-    private ContextSet context;
-    private int complexity;
+public class ContextSetAndComplexity {
+    public final ContextSet set;
+    public final int complexity;
+
+    public ContextSetAndComplexity(ContextSet set, int complexity) {
+        this.set = set;
+        this.complexity = complexity;
+    }
 
     public static ContextSetAndComplexity empty() {
         return new ContextSetAndComplexity(null, 0);
@@ -17,25 +24,19 @@ class ContextSetAndComplexity {
         return new ContextSetAndComplexity(null, complexity);
     }
 
-    public void setContext(ContextSet context) {
-        this.context = context;
-    }
-
-    public void addComplexity(int increment) {
-        complexity += increment;
-    }
-
     public ContextSet getContext() {
-        return context;
+        return set;
     }
 
     public int getComplexity() {
         return complexity;
     }
 
-    private ContextSetAndComplexity(ContextSet context, int complexity) {
-        this.context = context;
-        this.complexity = complexity;
+    public ContextSetAndComplexity setContext(ContextSet context) {
+        return new ContextSetAndComplexity(context, complexity);
     }
 
+    public ContextSetAndComplexity addComplexity(int additionalComplexity) {
+        return new ContextSetAndComplexity(set, complexity + additionalComplexity);
+    }
 }

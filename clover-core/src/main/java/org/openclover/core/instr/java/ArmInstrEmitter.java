@@ -1,57 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.core.api.registry.ContextSet;
 import org.openclover.core.context.NamedContext;
-import org.openclover.core.registry.FixedSourceRegion;
-import org.openclover.core.registry.entities.FullStatementInfo;
-import org.openclover.core.spi.lang.LanguageConstruct;
-import org.openclover.runtime.CloverNames;
 
-import static org.openclover.runtime.instr.Bindings.$CoverageRecorder$inc;
+import java.io.IOException;
+import java.io.Writer;
 
-public class ArmInstrEmitter extends Emitter {
-    private int endLine;
-    private int endCol;
-    private int complexity;
-    private FullStatementInfo stmtInfo;
-
-    public ArmInstrEmitter(ContextSet context, int line, int column, int endLine, int endCol) {
-        this(context, line, column, endLine, endCol, 0);
+/**
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
+ */
+public class ArmInstrEmitter implements Emitter {
+    public ArmInstrEmitter() {
+        // Empty stub
     }
 
-    public ArmInstrEmitter(ContextSet context, int line, int column, int endLine, int endCol, int complexity) {
-        super(context, line, column);
-        this.endLine = endLine;
-        this.endCol = endCol;
-        this.complexity = complexity;
+    public ArmInstrEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    public void init(InstrumentationState state) {
-        stmtInfo =
-            state.getSession().addStatement(
-                getElementContext(),
-                new FixedSourceRegion(getLine(), getColumn(), endLine, endCol),
-                complexity,
-                LanguageConstruct.Builtin.STATEMENT);
-        if (state.isInstrEnabled()) {
-            state.setDirty();
-
-            final int autoCloseableClassIndex = state.getAutoCloseableClassCount() - 1;
-            final String autoCloseableTypeName = AutoCloseableEmitter.AUTOCLOSEABLE_PREFIX + autoCloseableClassIndex;
-            final int autoCloseableInstanceIndex = state.incAutoCloseableInstanceCount() - 1;
-            final String autoCloseableInstanceName = CloverNames.CLOVER_PREFIX + "$ACI" + autoCloseableInstanceIndex;
-            setInstr(
-                autoCloseableTypeName + " " + autoCloseableInstanceName + "=new " + autoCloseableTypeName + "(){{" + $CoverageRecorder$inc(state.getRecorderPrefix(), Integer.toString(stmtInfo.getDataIndex())) + ";}};"
-            );
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
     @Override
-    public void addContext(NamedContext ctx) {
-        super.addContext(ctx);
-        if (stmtInfo != null) {
-            stmtInfo.addContext(ctx);
-        }
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

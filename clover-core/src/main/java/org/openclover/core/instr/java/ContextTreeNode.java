@@ -1,56 +1,34 @@
 package org.openclover.core.instr.java;
 
 import org.openclover.core.api.registry.ContextSet;
-import org.openclover.core.context.ContextSetImpl;
 
-/** Used to track and minimise context sets created  during instrumentation */
+/**
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
+ */
 public class ContextTreeNode {
-    private final ContextTreeNode parent;
-    private final ContextSet context;
-    private ContextTreeNode[] children;
-
-    ContextTreeNode(ContextTreeNode parent, ContextSet context) {
-        this.parent = parent;
-        this.children = new ContextTreeNode[parent.children.length];
-        this.context = context;
+    public ContextTreeNode(int size, ContextSet contextSet) {
+        // Empty stub
     }
 
-    public ContextTreeNode(int childCount, ContextSet context) {
-        this.parent = null;
-        this.children = new ContextTreeNode[childCount];
-        this.context = context;
+    public ContextTreeNode enterScope() {
+        return new ContextTreeNode(0, null);
     }
 
-    public ContextTreeNode enterContext(int index) {
-        if (index >= children.length) {
-            ContextTreeNode[] children = new ContextTreeNode[this.children.length * 2];
-            System.arraycopy(this.children, 0, children, 0, this.children.length);
-        }
-        ContextTreeNode child = children[index];
-        if (child == null) {
-            ContextSet context = this.context.copyOf();
-            context = context.set(index);
-            child = new ContextTreeNode(this, context);
-            children[index] = child;
-        }
-        return child;
+    public ContextTreeNode enterContext(Object context) {
+        return new ContextTreeNode(0, null);
     }
 
     public ContextTreeNode exitContext() {
-        return parent;
+        return this;
+    }
+
+    public ContextTreeNode exitScope() {
+        return this;
     }
 
     public ContextSet getContext() {
-        return context;           
-    }
-
-    public int countSelfAndDescendants() {
-        int count = 1;
-        for (ContextTreeNode child : children) {
-            if (child != null) {
-                count += child.countSelfAndDescendants();
-            }
-        }
-        return count;
+        return null;
     }
 }

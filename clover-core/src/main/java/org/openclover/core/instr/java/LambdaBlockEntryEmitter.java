@@ -1,38 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.core.registry.FixedSourceRegion;
-import org.openclover.core.registry.entities.FullMethodInfo;
-import org.openclover.core.registry.entities.MethodSignature;
-import org.openclover.core.spi.lang.LanguageConstruct;
-import org.openclover.runtime.instr.Bindings;
+import org.openclover.core.context.NamedContext;
+
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * Code emitter for lambda expressions declared as a code block in curly braces.
- * Emits code for the opening brace.
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class LambdaBlockEntryEmitter extends Emitter {
-    private MethodSignature signature;
-    FullMethodInfo method;
+public class LambdaBlockEntryEmitter implements Emitter {
+    public LambdaBlockEntryEmitter() {
+        // Empty stub
+    }
 
-    public LambdaBlockEntryEmitter(MethodSignature signature, int startLine, int startColumn) {
-        super(startLine, startColumn);
-        this.signature = signature;
+    public LambdaBlockEntryEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    protected void init(InstrumentationState state) {
-        if (state.isInstrEnabled()) {
-            state.setDirty();
-            method = (FullMethodInfo) state.getSession().enterMethod(getElementContext(),
-                    new FixedSourceRegion(getLine(), getColumn()),
-                    signature, false, null, true,
-                    FullMethodInfo.DEFAULT_METHOD_COMPLEXITY, LanguageConstruct.Builtin.METHOD);
-
-            StringBuilder instr = new StringBuilder();
-            instr.append(Bindings.$CoverageRecorder$inc(state.getRecorderPrefix(), Integer.toString(method.getDataIndex())));
-            instr.append(";");
-            setInstr(instr.toString());
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
+    }
 }

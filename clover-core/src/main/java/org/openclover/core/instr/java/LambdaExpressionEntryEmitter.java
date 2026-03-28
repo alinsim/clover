@@ -1,77 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.jetbrains.annotations.NotNull;
-import org.openclover.core.registry.FixedSourceRegion;
-import org.openclover.core.registry.entities.FullMethodInfo;
-import org.openclover.core.registry.entities.MethodSignature;
-import org.openclover.core.spi.lang.LanguageConstruct;
+import org.openclover.core.context.NamedContext;
+
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * Code emitter for lambdas declared as an expression. It wraps such expression into a method argument.
- * Emits code for the beginning of an expression.
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class LambdaExpressionEntryEmitter extends Emitter {
-    private final MethodSignature lambdaSignature;
-    private final String classCast;
-    FullMethodInfo method;
-    private int bodyStartLine, bodyStartColumn;
+public class LambdaExpressionEntryEmitter implements Emitter {
+    public LambdaExpressionEntryEmitter() {
+        // Empty stub
+    }
 
-    /**
-     *
-     * <pre>
-     *   (Integer)(x, y) -> x + y
-     *            ^ startLine,startColumn
-     *                      ^ bodyStartLine,bodyStartColumn
-     *   ^^^^^^^^ classCast
-     * </pre>
-     *
-     * @param lambdaSignature signature of the method which will be registered for this lambda
-     * @param classCast optional class cast to be put just before lambda
-     * @param startLine    line number where argument list starts
-     * @param startColumn  column number where argument list starts
-     * @param bodyStartLine    line number where expression body starts
-     * @param bodyStartColumn  column number where expression body starts
-     */
-    public LambdaExpressionEntryEmitter(@NotNull final MethodSignature lambdaSignature,
-                                        @NotNull final String classCast,
-                                        int startLine, int startColumn,
-                                        int bodyStartLine, int bodyStartColumn) {
-        super(startLine, startColumn);
-        this.lambdaSignature = lambdaSignature;
-        this.classCast = classCast;
-        this.bodyStartLine = bodyStartLine;
-        this.bodyStartColumn = bodyStartColumn;
+    public LambdaExpressionEntryEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    protected void init(@NotNull final InstrumentationState state) {
-        if (state.isInstrEnabled()) {
-            state.setDirty();
-            method = (FullMethodInfo) state.getSession().enterMethod(
-                    getElementContext(),
-                    new FixedSourceRegion(getLine(), getColumn()),
-                    lambdaSignature, false, null, true,
-                    FullMethodInfo.DEFAULT_METHOD_COMPLEXITY, LanguageConstruct.Builtin.METHOD);
-
-            // emit text like [__CLRxxxxxxxx.lambdaInc(123, ]
-            final String recorderBase = state.getRecorderPrefix().substring(0, state.getRecorderPrefix().lastIndexOf('.'));
-            final StringBuilder instr = new StringBuilder();
-            instr.append(recorderBase);
-            instr.append(".");
-            instr.append(RecorderInstrEmitter.LAMBDA_INC_METHOD);
-            instr.append("(");
-            instr.append(method.getDataIndex());
-            instr.append(","); // add a comma because we'll have original lambda as a second argument of lambdaInc
-            instr.append(classCast); // add a class cast before lambda (optional)
-            setInstr(instr.toString());
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
-    public int getBodyStartLine() {
-        return bodyStartLine;
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
     }
 
-    public int getBodyStartColumn() {
-        return bodyStartColumn;
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

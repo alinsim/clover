@@ -2,44 +2,44 @@ package org.openclover.core.instr.java;
 
 import org.openclover.core.context.NamedContext;
 
+import java.io.IOException;
+import java.io.Writer;
+
 /**
-
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class FlaggedInstrEmitter extends Emitter {
+public class FlaggedInstrEmitter implements Emitter {
+    public FlaggedInstrEmitter() {
+        // Empty stub
+    }
 
-    private FlagDeclEmitter flag;
-    private Emitter child;
-    private String preInstr = "";
-    private String postInstr = "";
-
-
-    public FlaggedInstrEmitter(FlagDeclEmitter flag, Emitter child) {
-        super();
-        flag.addDependent(this); // I am dependent on the flag decl
-        addDependent(child); // the enclosed emitter is dependent on me
-        this.flag = flag;
-        this.child = child;
+    public FlaggedInstrEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    public void addContext(NamedContext ctx) {
-        super.addContext(ctx);
-        child.addContext(ctx);
-    }
-
-
-    @Override
-    public void init(InstrumentationState state) {
-       child.initialise(state);
-       if (state.isInstrEnabled()) {
-           preInstr = "if (!"+flag.getFlagName()+") {";
-           postInstr = flag.getFlagName() + "=true;}";
-       }
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
     @Override
-    public String getInstr() {
-       return preInstr + child.getInstr() + postInstr;
+    public void setEnabled(boolean enabled) {
+        // No-op
     }
 
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
+    }
 }

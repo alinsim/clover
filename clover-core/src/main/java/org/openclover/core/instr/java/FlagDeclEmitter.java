@@ -1,35 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org_openclover_runtime.CloverVersionInfo;
+import org.openclover.core.context.NamedContext;
 
+import java.io.IOException;
+import java.io.Writer;
 
-public class FlagDeclEmitter extends Emitter {
-
-    private String flag;
-    private boolean initval;
-
+/**
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
+ */
+public class FlagDeclEmitter implements Emitter {
     public FlagDeclEmitter() {
-        this(false);
+        // Empty stub
     }
 
-    public FlagDeclEmitter(boolean initval) {
-        super();
-        this.initval = initval;
+    public FlagDeclEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    public void init(InstrumentationState state) {
-        flag = "__CLB" + CloverVersionInfo.SANITIZED_RN +"_bool" + state.getIncBoolIndex();
-        if (state.isInstrEnabled()) {
-            setInstr("boolean " + flag + "="+initval+";");
-        }
-        else {
-            // tell my dependents
-            setEnabled(false);
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
-    public String getFlagName() {
-        return flag;
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

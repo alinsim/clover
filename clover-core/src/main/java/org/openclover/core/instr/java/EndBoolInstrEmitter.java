@@ -1,56 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.core.api.registry.ContextSet;
 import org.openclover.core.context.NamedContext;
-import org.openclover.core.registry.FixedSourceRegion;
-import org.openclover.core.registry.entities.FullBranchInfo;
-import org.openclover.core.spi.lang.LanguageConstruct;
 
-import static org.openclover.runtime.instr.Bindings.$CoverageRecorder$iget;
+import java.io.IOException;
+import java.io.Writer;
 
-
-public class EndBoolInstrEmitter extends Emitter {
-
-    private ExpressionInfo expr;
-    private int endline;
-    private int endcol;
-    private FullBranchInfo branchInfo;
-
-    public EndBoolInstrEmitter(ContextSet context, int line, int column, int endline, int endcol,
-                               ExpressionInfo expr) {
-        super(context, line, column);
-        this.endline = endline;
-        this.endcol = endcol;
-        this.expr = expr;
-        setInstr("");
+/**
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
+ */
+public class EndBoolInstrEmitter implements Emitter {
+    public EndBoolInstrEmitter() {
+        // Empty stub
     }
 
-      @Override
-      public void init(InstrumentationState state) {
-        branchInfo =
-            state.getSession().addBranch(
-                getElementContext(),
-                new FixedSourceRegion(getLine(), getColumn(), endline, endcol),
-                expr.isInstrumentable(), expr.getComplexity(),
-                LanguageConstruct.Builtin.BRANCH);
-        if (state.isInstrEnabled()) {
-            if (branchInfo != null && // HACK - see CCD-317. ternary operators can occur outside methods
-                    expr.isInstrumentable()) {
-                int index = branchInfo.getDataIndex();
-                state.setDirty();
-
-                setInstr(")&&(" + $CoverageRecorder$iget(state.getRecorderPrefix(), Integer.toString(index)) + "!=0|true))||("
-                        + $CoverageRecorder$iget(state.getRecorderPrefix(), Integer.toString(index + 1)) + "==0&false))");
-            }
-        }
+    public EndBoolInstrEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    public void addContext(NamedContext ctx) {
-        super.addContext(ctx);
-        if (branchInfo != null) {
-            branchInfo.addContext(ctx);
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
+    }
 }

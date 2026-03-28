@@ -1,60 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.core.cfg.instr.InstrumentationConfig;
-import org.openclover.runtime.CloverNames;
+import org.openclover.core.context.NamedContext;
 
-import java.lang.reflect.Modifier;
-
-import static org.openclover.runtime.instr.Bindings.$CoverageRecorder$flushNeeded;
-import static org.openclover.runtime.instr.Bindings.$CoverageRecorder$globalSliceEnd;
-import static org.openclover.runtime.instr.Bindings.$CoverageRecorder$maybeFlush;
+import java.io.IOException;
+import java.io.Writer;
 
 /**
-
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class MethodExitInstrEmitter extends Emitter {
+public class MethodExitInstrEmitter implements Emitter {
+    public MethodExitInstrEmitter(MethodRegistrationNode node) {
+        // Empty stub
+    }
 
-    private MethodEntryInstrEmitter entry;
-
-    public MethodExitInstrEmitter(MethodEntryInstrEmitter entryEmitter, int endline, int endcol) {
-        super(endline, endcol);
-        this.entry = entryEmitter;
+    public MethodExitInstrEmitter(MethodEntryInstrEmitter entry, int line, int col) {
+        // Empty stub - alternate constructor
     }
 
     @Override
-    public void init(final InstrumentationState state) {
-        state.getSession().exitMethod(getLine(), getColumn());
+    public void emit(Writer out) throws IOException {
+        // No-op
+    }
 
-        final StringBuilder instr = new StringBuilder();
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
 
-        if (entry.needsFinally()) {
-            instr.append("}finally{");
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
 
-            if (state.isInstrEnabled()) {
-                switch (state.getCfg().getFlushPolicy()) {
-                    case InstrumentationConfig.INTERVAL_FLUSHING:
-                        instr.append($CoverageRecorder$maybeFlush(state.getRecorderPrefix()));
-                        instr.append(";");
-                        break;
-                    case InstrumentationConfig.THREADED_FLUSHING:
-                        instr.append($CoverageRecorder$flushNeeded(state.getRecorderPrefix()));
-                        instr.append(";");
-                        break;
-                }
-                if (entry.isAddTestInstr()) {
-                    String typeInstr = "getClass().getName()";
-                    if (Modifier.isStatic(entry.getSignature().getBaseModifiersMask())) {
-                       typeInstr = entry.getMethod().getContainingClass().getName() + ".class.getName()";
-                    }
-                    instr.append($CoverageRecorder$globalSliceEnd(state.getRecorderPrefix(), typeInstr,
-                            "\"" + entry.getMethod().getQualifiedName() + "\"",
-                            CloverNames.CLOVER_TEST_NAME_SNIFFER + ".getTestName()",
-                            Integer.toString(entry.getMethod().getDataIndex())));
-                    instr.append(";");
-                }
-            }
-            instr.append("}");
-        }
-        setInstr(instr.toString());
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

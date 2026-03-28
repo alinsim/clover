@@ -1,32 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.core.registry.FixedSourceRegion;
-import org.openclover.core.registry.entities.FullMethodInfo;
-import org.openclover.core.registry.entities.MethodSignature;
-import org.openclover.core.spi.lang.LanguageConstruct;
+import org.openclover.core.context.NamedContext;
+
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * Code emitter for lambda expressions declared as an expression to be translated into curly braces. Registered at lambda start
- * registers lambda enter method.
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class LambdaExprToBlockStartEntryEmitter extends Emitter {
+public class LambdaExprToBlockStartEntryEmitter implements Emitter {
+    public LambdaExprToBlockStartEntryEmitter() {
+        // Empty stub
+    }
 
-    protected final MethodSignature signature;
-    protected FullMethodInfo method;
-
-    public LambdaExprToBlockStartEntryEmitter(MethodSignature signature, int startLine, int startColumn) {
-        super(startLine, startColumn);
-        this.signature = signature;
+    public LambdaExprToBlockStartEntryEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    protected void init(InstrumentationState state) {
-        if (state.isInstrEnabled()) {
-            state.setDirty();
-            method = ((FullMethodInfo) state.getSession().enterMethod(getElementContext(),
-                    new FixedSourceRegion(getLine(), getColumn()),
-                    signature, false, null, true,
-                    FullMethodInfo.DEFAULT_METHOD_COMPLEXITY, LanguageConstruct.Builtin.METHOD));
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

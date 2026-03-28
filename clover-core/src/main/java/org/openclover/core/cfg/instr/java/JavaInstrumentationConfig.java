@@ -24,7 +24,7 @@ public class JavaInstrumentationConfig extends InstrumentationConfig {
     private LambdaInstrumentation instrumentLambda = LambdaInstrumentation.NONE;
 
     /** If true, use JavaParser for instrumentation instead of ANTLR */
-    private boolean useJavaParser = false;
+    private boolean useJavaParser = true;
 
     /** Used by CloverInstr */
     private File sourceDir;

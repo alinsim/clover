@@ -1,28 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.runtime.CloverNames;
+import org.openclover.core.context.NamedContext;
+
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * Emits an AutoCloseable subclass declaration immediately before a try ARM block.
- * This is needed because AutoCloseable's close() method throws an exception
- * which we can't allow for compilation consistency so that means
- * we can't just create anonymous AutoCloseables in the try ARM clause.
- * We need to create anonymous ClRAutoCloseables.
- * <p/>
- * We emit a new ClRAutoCloseables declaration (they are numbered across the instrumentation session)
- * for each try ARM block because the Clover instrumenter doesn't easily support
- * forward references to types we may inject.
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class AutoCloseableEmitter extends Emitter {
-    public static final String AUTOCLOSEABLE_PREFIX = CloverNames.CLOVER_RECORDER_PREFIX + "$AC";
+public class AutoCloseableEmitter implements Emitter {
+    public AutoCloseableEmitter() {
+        // Empty stub
+    }
+
+    public AutoCloseableEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
+    }
 
     @Override
-    protected void init(InstrumentationState state) {
-        if (state.isInstrEnabled()) {
-            state.setDirty();
-            int count = state.getAutoCloseableClassCount();
-            setInstr("class " + AUTOCLOSEABLE_PREFIX + count + " implements " + state.getCfg().getJavaLangPrefix() + "AutoCloseable {public void close(){}}; ");
-            state.incAutoCloseableClassCount();
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

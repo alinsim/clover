@@ -3,34 +3,32 @@ package org.openclover.core.instr.java;
 import org.openclover.core.registry.entities.MethodSignature;
 
 /**
- * A triple of: methodSignature, pointer to the last token of the signature and whether it belongs to
- * a deprecated context. Returned by compact constructors, standard constructors and methods
- * in JavaRecognizer.
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
 public class MethodSignatureExt {
-    private final MethodSignature signature;
-    private final CloverToken endToken;
-    private final Boolean deprecated;
-
-    public static MethodSignatureExt of(MethodSignature signature, CloverToken endToken, Boolean deprecated) {
-        return new MethodSignatureExt(signature, endToken, deprecated);
+    public MethodSignatureExt(Object... args) {
+        // Empty stub
     }
 
-    private MethodSignatureExt(MethodSignature signature, CloverToken endToken, Boolean deprecated) {
-        this.signature = signature;
-        this.endToken = endToken;
-        this.deprecated = deprecated;
+    public static MethodSignatureExt of(MethodSignature sig, CloverToken token, boolean deprecated) {
+        return new MethodSignatureExt();
+    }
+
+    public static MethodSignatureExt of(Object o1, Object o2, Object o3) {
+        return new MethodSignatureExt();
     }
 
     public MethodSignature signature() {
-        return signature;
+        return null;
     }
 
     public CloverToken endToken() {
-        return endToken;
+        return null;
     }
 
-    public Boolean isDeprecated() {
-        return deprecated;
+    public boolean isDeprecated() {
+        return false;
     }
 }

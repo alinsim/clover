@@ -1,34 +1,41 @@
 package org.openclover.core.instr.java;
 
+import org.openclover.core.context.NamedContext;
+
+import java.io.IOException;
+import java.io.Writer;
+
 /**
-
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class ClassExitNode extends Emitter {
-
-
-    private ClassEntryNode entry;
-
-    public ClassExitNode(ClassEntryNode entry, String className, int endline, int endcol) {
-        super(endline, endcol);
-        this.entry = entry;
+public class ClassExitNode implements Emitter {
+    public ClassExitNode(ClassEntryNode entry, String name, int line, int column) {
+        // Empty stub
     }
 
     @Override
-    public void init(InstrumentationState state) {
-        state.getSession().exitClass(getLine(), getColumn());
-        state.setDetectTests(entry.isOuterDetectTests());
-
-        CloverToken insertPoint = entry.getRecorderInsertPoint();
-        if (insertPoint != null) {
-            insertPoint.setEmittersEnabled(state.isDirty());
-            entry.getRecorderInstrEmitter().setMaxDataIndex(
-                state.getSession().getCurrentFileMaxIndex());
-            state.setDirty(false);
-        }
-
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
-    public ClassEntryNode getEntry() {
-        return entry;
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

@@ -1,39 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.core.registry.FixedSourceRegion;
-import org.openclover.core.registry.entities.FullStatementInfo;
-import org.openclover.core.spi.lang.LanguageConstruct;
+import org.openclover.core.context.NamedContext;
+
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * Code emitter for lambdas declared as an expression. It wraps such expression into a method argument.
- * Emits code for the end of expression.
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class LambdaExpressionExitEmitter extends Emitter {
-    private LambdaExpressionEntryEmitter entryEmitter;
+public class LambdaExpressionExitEmitter implements Emitter {
+    public LambdaExpressionExitEmitter() {
+        // Empty stub
+    }
 
-    public LambdaExpressionExitEmitter(LambdaExpressionEntryEmitter entryEmitter, int endLine, int endColumn) {
-        super(endLine, endColumn);
-        this.entryEmitter = entryEmitter;
+    public LambdaExpressionExitEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    protected void init(InstrumentationState state) {
-        // we shall check "if (state.isInstrEnabled())" but as CLOVER:OFF could have been written in the middle
-        // therefore we check for non-null value of a method field -> it means that enterMethod() was called
-        if (entryEmitter.method != null) {
-            // treat expression inside this lambda as statement with complexity 0 and record it in the database
-            final FullStatementInfo statementInfo = state.getSession().addStatement(
-                    getElementContext(),
-                    new FixedSourceRegion(entryEmitter.getBodyStartLine(), entryEmitter.getBodyStartColumn(),
-                            this.getLine(), this.getColumn()),
-                    0, LanguageConstruct.Builtin.STATEMENT);
+    public void emit(Writer out) throws IOException {
+        // No-op
+    }
 
-            // close the method
-            state.getSession().exitMethod(getLine(), getColumn());
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
 
-            // append statement index after the lambda call and
-            // write closing brace for argument list of a lambdaInc wrapper
-            setInstr("," + statementInfo.getDataIndex() + ")");
-        }
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

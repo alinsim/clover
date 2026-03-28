@@ -1,48 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.core.api.registry.ContextSet;
 import org.openclover.core.context.NamedContext;
-import org.openclover.core.registry.FixedSourceRegion;
-import org.openclover.core.registry.entities.FullStatementInfo;
-import org.openclover.core.spi.lang.LanguageConstruct;
 
-import static org.openclover.runtime.instr.Bindings.$CoverageRecorder$inc;
+import java.io.IOException;
+import java.io.Writer;
 
-public class StatementInstrEmitter extends Emitter {
-    private int endLine;
-    private int endCol;
-    private int complexity;
-    private FullStatementInfo stmtInfo;
-
-    public StatementInstrEmitter(ContextSet context, int line, int column, int endLine, int endCol) {
-        this(context, line, column, endLine, endCol, 0);
+/**
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
+ */
+public class StatementInstrEmitter implements Emitter {
+    public StatementInstrEmitter(Object context, int complexity, CloverToken start, CloverToken end) {
+        // Empty stub
     }
-    public StatementInstrEmitter(ContextSet context, int line, int column, int endLine, int endCol, int complexity) {
-        super(context, line, column);
-        this.endLine = endLine;
-        this.endCol = endCol;
-        this.complexity = complexity;
+
+    public StatementInstrEmitter(Object context, int complexity, int startLine, int startCol, int endLine, int endCol) {
+        // Empty stub - alternate constructor
     }
 
     @Override
-    public void init(InstrumentationState state) {
-        stmtInfo =
-            state.getSession().addStatement(
-                getElementContext(),
-                new FixedSourceRegion(getLine(), getColumn(), endLine, endCol),
-                complexity,
-                LanguageConstruct.Builtin.STATEMENT);
-        if (state.isInstrEnabled()) {
-            state.setDirty();
-            setInstr($CoverageRecorder$inc(state.getRecorderPrefix(), Integer.toString(stmtInfo.getDataIndex())) + ";");
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
     @Override
-    public void addContext(NamedContext ctx) {
-        super.addContext(ctx);
-        if (stmtInfo != null) {
-            stmtInfo.addContext(ctx);
-        }
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

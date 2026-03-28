@@ -1,14 +1,41 @@
 package org.openclover.core.instr.java;
 
+import org.openclover.core.context.NamedContext;
 
-import static org.openclover.runtime.instr.Bindings.$Clover$globalFlush;
+import java.io.IOException;
+import java.io.Writer;
 
-public class DirectedFlushEmitter extends Emitter {
+/**
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
+ */
+public class DirectedFlushEmitter implements Emitter {
+    public DirectedFlushEmitter() {
+        // Empty stub
+    }
+
     @Override
-    public void init(InstrumentationState state) {
-        if (state.needsFlush() && state.isInstrEnabled()) {
-            setInstr($Clover$globalFlush() + ";");
-            state.setNeedsFlush(false);
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

@@ -1,34 +1,45 @@
 package org.openclover.core.instr.java;
 
-import org.openclover.runtime.instr.Bindings;
+import org.openclover.core.context.NamedContext;
+
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * Code emitter for lambda expressions declared as an expression to be translated into curly braces. Emits code for the
- * opening brace and return statement if currentMethod#isVoidReturnType==false. Registered at lambda body start.
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
  */
-public class LambdaExprToBlockBodyEntryEmitter extends Emitter {
+public class LambdaExprToBlockBodyEntryEmitter implements Emitter {
+    public LambdaExprToBlockBodyEntryEmitter() {
+        // Empty stub
+    }
 
-    private final LambdaExprToBlockStartEntryEmitter startEmitter;
-
-    public LambdaExprToBlockBodyEntryEmitter(LambdaExprToBlockStartEntryEmitter startEmitter, int startLine, int startColumn) {
-        super(startLine, startColumn);
-        this.startEmitter = startEmitter;
+    public LambdaExprToBlockBodyEntryEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    protected void init(InstrumentationState state) {
-        if (shouldInstrument()) {
-            StringBuilder instr = new StringBuilder("{");
-            instr.append(Bindings.$CoverageRecorder$inc(state.getRecorderPrefix(), Integer.toString(startEmitter.method.getDataIndex())));
-            instr.append(";");
-            if (!startEmitter.method.isVoidReturnType()) {
-                instr.append("return ");
-            }
-            setInstr(instr.toString());
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
     }
 
-    private boolean shouldInstrument() {
-        return startEmitter.method != null && startEmitter.method.isLambda();
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }

@@ -1,24 +1,45 @@
 package org.openclover.core.instr.java;
 
-/**
- * Code emitter for lambda expressions declared as a code block in curly braces.
- * Emits code for the closing brace.
- */
-public class LambdaBlockExitEmitter extends Emitter {
-    private final LambdaBlockEntryEmitter entryEmitter;
+import org.openclover.core.context.NamedContext;
 
-    public LambdaBlockExitEmitter(LambdaBlockEntryEmitter entryEmitter, int endLine, int endColumn) {
-        super(endLine, endColumn);
-        this.entryEmitter = entryEmitter;
+import java.io.IOException;
+import java.io.Writer;
+
+/**
+ * Legacy stub for ANTLR-generated code compatibility.
+ * This class is no longer used for instrumentation (JavaParser handles that now).
+ * Kept only so generated JavaRecognizer.java compiles (even though it's never executed).
+ */
+public class LambdaBlockExitEmitter implements Emitter {
+    public LambdaBlockExitEmitter() {
+        // Empty stub
+    }
+
+    public LambdaBlockExitEmitter(Object... args) {
+        // Empty stub - accepts any constructor arguments
     }
 
     @Override
-    protected void init(InstrumentationState state) {
-        // we shall check "if (state.isInstrEnabled())" but as CLOVER:OFF could have been written in the middle
-        // therefore we check for non-null value of 'method' field -> it means that enterMethod() was called
-        if (entryEmitter.method != null) {
-            state.getSession().exitMethod(getLine(), getColumn());
-            // nothing more to do, we don't have coverage flushing in lambdas an their exit so no finally block
-        }
+    public void emit(Writer out) throws IOException {
+        // No-op
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        // No-op
+    }
+
+    @Override
+    public void addContext(NamedContext context) {
+        // No-op
+    }
+
+    @Override
+    public void initialise(InstrumentationState state) {
+        // No-op
+    }
+    @Override
+    public void addDependent(Emitter dependent) {
+        // No-op
     }
 }
