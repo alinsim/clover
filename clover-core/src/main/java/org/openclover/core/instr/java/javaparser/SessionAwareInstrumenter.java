@@ -1117,6 +1117,16 @@ public class SessionAwareInstrumenter {
 
             int index = stmtInfo.getDataIndex();
             String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+
+            if (needsBracesWrapping(stmt)) {
+                Optional<Position> end = stmt.getEnd();
+                if (end.isPresent()) {
+                    insertions.add(Insertion.before(pos.get().line, pos.get().column, "{" + incCode, 20));
+                    insertions.add(Insertion.after(end.get().line, end.get().column, "}", 21));
+                    return;
+                }
+            }
+
             insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
         }
 
@@ -1150,7 +1160,11 @@ public class SessionAwareInstrumenter {
                 if (branchBody instanceof BlockStmt) {
                     insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
                 } else {
-                    insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 15));
+                    Optional<Position> end = branchBody.getEnd();
+                    if (end.isPresent()) {
+                        insertions.add(Insertion.before(pos.get().line, pos.get().column, "{" + incCode, 15));
+                        insertions.add(Insertion.after(end.get().line, end.get().column, "}", 16));
+                    }
                 }
             }
         }
@@ -1263,6 +1277,21 @@ public class SessionAwareInstrumenter {
                 return false;
             }
             return !classDecl.isStatic();
+        }
+
+        private boolean needsBracesWrapping(Statement stmt) {
+            if (!stmt.getParentNode().isPresent()) {
+                return false;
+            }
+            Node parent = stmt.getParentNode().get();
+            if (parent instanceof BlockStmt) {
+                return false;
+            }
+            return parent instanceof IfStmt
+                    || parent instanceof WhileStmt
+                    || parent instanceof ForStmt
+                    || parent instanceof ForEachStmt
+                    || parent instanceof DoStmt;
         }
 
         private boolean isInsideSwitchExpressionArrowCase(Statement stmt) {

@@ -639,7 +639,42 @@ public class JavaParserInstrumenter {
 
             int index = indexCounter.getAndIncrement();
             String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+
+            // If statement is the sole body of a braceless control flow construct
+            // (if/else/while/for/do without braces), wrap with braces so R.inc()
+            // and the original statement stay together inside the branch body.
+            if (needsBracesWrapping(stmt)) {
+                Optional<Position> end = stmt.getEnd();
+                if (end.isPresent()) {
+                    insertions.add(Insertion.before(pos.get().line, pos.get().column, "{" + incCode, 20));
+                    insertions.add(Insertion.after(end.get().line, end.get().column, "}", 21));
+                    return;
+                }
+            }
+
             insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 20));
+        }
+
+        /**
+         * Returns true if the statement is a sole body of a braceless control flow
+         * construct (if/while/for/do without braces). Inserting R.inc() before such
+         * a statement without wrapping in braces would cause R.inc() to become the
+         * sole branch body and the original statement to escape the branch.
+         */
+        private boolean needsBracesWrapping(Statement stmt) {
+            if (!stmt.getParentNode().isPresent()) {
+                return false;
+            }
+            Node parent = stmt.getParentNode().get();
+            // Already inside a block — no wrapping needed
+            if (parent instanceof BlockStmt) {
+                return false;
+            }
+            return parent instanceof IfStmt
+                    || parent instanceof WhileStmt
+                    || parent instanceof ForStmt
+                    || parent instanceof ForEachStmt
+                    || parent instanceof DoStmt;
         }
 
         /**
@@ -685,8 +720,13 @@ public class JavaParserInstrumenter {
                 // For block statements, insert after the opening brace
                 insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
             } else {
-                // For single statements, insert before the statement
-                insertions.add(Insertion.before(pos.get().line, pos.get().column, incCode, 15));
+                // For single statements (braceless body), wrap with braces so
+                // R.inc() + original statement stay together inside the branch
+                Optional<Position> end = branchBody.getEnd();
+                if (end.isPresent()) {
+                    insertions.add(Insertion.before(pos.get().line, pos.get().column, "{" + incCode, 15));
+                    insertions.add(Insertion.after(end.get().line, end.get().column, "}", 16));
+                }
             }
         }
 
