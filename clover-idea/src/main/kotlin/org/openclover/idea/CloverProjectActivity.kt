@@ -1,0 +1,31 @@
+package org.openclover.idea
+
+import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.startup.ProjectActivity
+
+/**
+ * Runs when a project is opened and initialized.
+ * Replaces the old `StartupManager.runWhenProjectIsInitialized` callback
+ * in [ProjectPlugin].
+ *
+ * This is a suspend function — it runs in the project's coroutine scope
+ * and can perform async I/O without blocking the EDT.
+ */
+class CloverProjectActivity : ProjectActivity {
+
+    override suspend fun execute(project: Project) {
+        val service = CloverProjectService.getInstance(project)
+        if (!service.isEnabled) {
+            thisLogger().info("OpenClover is disabled for project: ${project.name}")
+            return
+        }
+
+        thisLogger().info("OpenClover activating for project: ${project.name}")
+
+        // TODO (.5): Initialize CoverageManager — load coverage database
+        // TODO (.6): Register editor coverage annotations
+        // TODO (.7): Register tool window
+        // TODO (.10): Register build system hooks
+    }
+}

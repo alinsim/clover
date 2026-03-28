@@ -2,24 +2,57 @@
     <id>org.openclover.idea</id>
     <name>OpenClover</name>
 
+    <!-- Platform + Java plugin dependencies -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <!-- Application-level service: global plugin state and settings -->
+        <!-- Application-level service: global config, logging bridge -->
         <applicationService
             serviceImplementation="org.openclover.idea.CloverApplicationService"/>
 
-        <!-- Project-level service: per-project coverage state -->
+        <!-- Project-level service: per-project coverage state and config -->
         <projectService
             serviceImplementation="org.openclover.idea.CloverProjectService"/>
+
+        <!-- Project startup activity: activates coverage on project open -->
+        <postStartupActivity
+            implementation="org.openclover.idea.CloverProjectActivity"/>
+
+        <!-- TODO (.7): Tool window registration
+        <toolWindow id="OpenClover"
+                    anchor="bottom"
+                    icon="/icons/clover_tny.png"
+                    factoryClass="org.openclover.idea.toolwindow.CloverToolWindowFactory"/>
+        -->
+
+        <!-- TODO (.8): Settings/Configurable
+        <applicationConfigurable
+            id="openclover.global"
+            displayName="OpenClover"
+            instance="org.openclover.idea.config.CloverGlobalConfigurable"/>
+        <projectConfigurable
+            id="openclover.project"
+            displayName="OpenClover"
+            parentId="openclover.global"
+            instance="org.openclover.idea.config.CloverProjectConfigurable"/>
+        -->
+
+        <!-- TODO (.14): Project view decorator
+        <projectViewNodeDecorator
+            implementation="org.openclover.idea.projectview.CoverageProjectViewDecorator"/>
+        -->
+
+        <!-- TODO (.12): Custom file editors (TreeMap, Cloud)
+        <fileEditorProvider
+            implementation="org.openclover.idea.report.treemap.TreeMapEditorProvider"/>
+        <fileEditorProvider
+            implementation="org.openclover.idea.report.cloud.CloudEditorProvider"/>
+        -->
     </extensions>
 
-    <applicationListeners>
-        <!-- React to project open/close for coverage lifecycle -->
-    </applicationListeners>
-
-    <projectListeners>
-        <!-- React to file changes, compilation events, etc. -->
-    </projectListeners>
+    <!-- TODO (.9): Actions
+    <actions>
+    </actions>
+    -->
 </idea-plugin>
