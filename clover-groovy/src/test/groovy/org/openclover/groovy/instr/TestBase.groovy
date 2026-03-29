@@ -192,12 +192,19 @@ abstract class TestBase
     }
 
     static List<File> getCloverLibs() {
-        new File("target/test-dependencies").listFiles(new FileFilter() {
+        File depsDir = new File("target/test-dependencies")
+        if (!depsDir.exists()) {
+            throw new IllegalStateException(
+                "target/test-dependencies not found (cwd: ${new File('.').absolutePath}). " +
+                "Run 'mvn process-test-resources' first to copy test dependencies.")
+        }
+        File[] files = depsDir.listFiles(new FileFilter() {
             @Override
             boolean accept(File pathname) {
-                // skip groovy/spock/junit as we will test with specific versions
-                return !pathname.name.matches("(groovy|spock|junit)-.*\\.jar")
+                // skip groovy/spock/junit/hamcrest as we will test with specific versions
+                return !pathname.name.matches("(groovy|spock|junit|hamcrest)-.*\\.jar")
             }
-        }).toList()
+        })
+        return (files ?: new File[0]).toList()
     }
 }
