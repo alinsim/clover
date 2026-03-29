@@ -490,7 +490,10 @@ public class AstInstrumenter {
         public void visit(MethodDeclaration method, Void arg) {
             Position begin = method.getBegin().orElse(null);
             Position end = method.getEnd().orElse(null);
-            if (begin == null) { super.visit(method, arg); return; }
+            if (begin == null || !isInstrumentationEnabled(begin.line)) {
+                super.visit(method, arg);
+                return;
+            }
 
             FixedSourceRegion region = new FixedSourceRegion(begin.line, begin.column);
             MethodSignature signature = buildMethodSignature(method);
@@ -503,17 +506,15 @@ public class AstInstrumenter {
                     region, signature, isTest, staticTestName, false, complexity,
                     LanguageConstruct.Builtin.METHOD);
 
-            // Inject RINC_PREFIXN) at method entry
             method.getBody().ifPresent(body -> {
+                // Instrument statements/branches FIRST, then add method entry R.inc
+                // (otherwise instrumentBlock would try to instrument the R.inc itself)
+                instrumentBlock(body);
                 int methodIndex = methodInfo.getDataIndex();
                 body.getStatements().addFirst(
-                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +methodIndex + INC_SUFFIX));
-
-                // Instrument statements and branches in the body
-                instrumentBlock(body);
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + methodIndex + INC_SUFFIX));
             });
 
-            // Don't call super.visit — we handle children manually in instrumentBlock
             if (end != null) {
                 session.exitMethod(end.line, end.column);
             }
@@ -523,7 +524,10 @@ public class AstInstrumenter {
         public void visit(ConstructorDeclaration ctor, Void arg) {
             Position begin = ctor.getBegin().orElse(null);
             Position end = ctor.getEnd().orElse(null);
-            if (begin == null) { super.visit(ctor, arg); return; }
+            if (begin == null || !isInstrumentationEnabled(begin.line)) {
+                super.visit(ctor, arg);
+                return;
+            }
 
             FixedSourceRegion region = new FixedSourceRegion(begin.line, begin.column);
             MethodSignature signature = buildConstructorSignature(ctor);
@@ -535,6 +539,9 @@ public class AstInstrumenter {
                     LanguageConstruct.Builtin.METHOD);
 
             BlockStmt body = ctor.getBody();
+            // Instrument statements/branches FIRST, then add constructor entry R.inc
+            instrumentBlock(body);
+
             int insertPos = 0;
             List<Statement> stmts = body.getStatements();
             if (!stmts.isEmpty() && stmts.get(0) instanceof ExplicitConstructorInvocationStmt) {
@@ -542,9 +549,7 @@ public class AstInstrumenter {
             }
             int ctorIndex = methodInfo.getDataIndex();
             body.getStatements().add(insertPos,
-                    StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +ctorIndex + INC_SUFFIX));
-
-            instrumentBlock(body);
+                    StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + ctorIndex + INC_SUFFIX));
 
             if (end != null) {
                 session.exitMethod(end.line, end.column);
@@ -691,7 +696,7 @@ public class AstInstrumenter {
                     i++;
                 } else if (isExecutableStatement(stmt)) {
                     Position pos = stmt.getBegin().orElse(null);
-                    if (pos != null) {
+                    if (pos != null && isInstrumentationEnabled(pos.line)) {
                         FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
                         FullStatementInfo stmtInfo = session.addStatement(
                                 new ContextSetImpl(),
@@ -699,7 +704,7 @@ public class AstInstrumenter {
                                 LanguageConstruct.Builtin.STATEMENT);
                         int stmtIndex = stmtInfo.getDataIndex();
                         block.getStatements().add(i,
-                                StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +stmtIndex + INC_SUFFIX));
+                                StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + stmtIndex + INC_SUFFIX));
                         i += 2;
                     } else {
                         i++;
@@ -712,7 +717,7 @@ public class AstInstrumenter {
 
         private void instrumentIf(IfStmt ifStmt) {
             Position pos = ifStmt.getBegin().orElse(null);
-            if (pos == null) return;
+            if (pos == null || !isInstrumentationEnabled(pos.line)) return;
 
             FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
             FullBranchInfo branchInfo = session.addBranch(
@@ -772,7 +777,7 @@ public class AstInstrumenter {
 
         private void instrumentLoopBody(Statement body) {
             Position pos = body.getBegin().orElse(null);
-            if (pos == null) return;
+            if (pos == null || !isInstrumentationEnabled(pos.line)) return;
 
             FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
             FullBranchInfo branchInfo = session.addBranch(

@@ -484,11 +484,14 @@ public class AstInstrumenterTest {
      */
     @Test
     public void cloverOffSkipsInstrumentation() throws Exception {
-        String source = "class Foo { void bar() { "
-                + "/* CLOVER:OFF */ "
-                + "int x = 1; "
-                + "/* CLOVER:ON */ "
-                + "int y = 2; } }";
+        String source = "class Foo {\n"
+                + "void bar() {\n"
+                + "/* CLOVER:OFF */\n"
+                + "int x = 1;\n"
+                + "/* CLOVER:ON */\n"
+                + "int y = 2;\n"
+                + "}\n"
+                + "}";
         InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
         StringWriter output = new StringWriter();
 
@@ -512,9 +515,103 @@ public class AstInstrumenterTest {
 
         AstInstrumenter.instrument(instrSource, output, session, config, null, null);
 
-        String result = output.toString();
-        // The statement "int y = 2" should have instrumentation, but not "int x = 1"
-        assertTrue("Should contain instrumented code", result.contains(".inc("));
+        // addStatement should be called only once — for "int y = 2" (not "int x = 1")
+        verify(session, times(1)).addStatement(any(), any(), anyInt(), any());
+    }
+
+    /**
+     * Tests that CLOVER:OFF gates method entry instrumentation.
+     */
+    @Test
+    public void cloverOffSkipsMethodEntry() throws Exception {
+        String source = "class Foo {\n"
+                + "/* CLOVER:OFF */\n"
+                + "void skipped() { doWork(); }\n"
+                + "/* CLOVER:ON */\n"
+                + "void covered() { doWork(); }\n"
+                + "}";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // enterMethod should be called only for covered(), not skipped()
+        verify(session, times(1)).enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any());
+    }
+
+    /**
+     * Tests CLOVER:OFF around if statement skips branch instrumentation.
+     */
+    @Test
+    public void cloverOffSkipsBranchInstrumentation() throws Exception {
+        String source = "class Foo {\n"
+                + "void m(boolean b) {\n"
+                + "/* CLOVER:OFF */\n"
+                + "if (b) { doSkipped(); }\n"
+                + "/* CLOVER:ON */\n"
+                + "if (b) { doCovered(); }\n"
+                + "}\n"
+                + "}";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // addBranch called once (for covered if), not twice
+        verify(session, times(1)).addBranch(any(), any(), anyBoolean(), anyInt(), any());
+    }
+
+    /**
+     * Tests CLOVER:OFF at end of file (no matching ON).
+     */
+    @Test
+    public void cloverOffWithoutOnDisablesToEndOfFile() throws Exception {
+        String source = "class Foo {\n"
+                + "void covered() { doWork(); }\n"
+                + "/* CLOVER:OFF */\n"
+                + "void skipped1() { doWork(); }\n"
+                + "void skipped2() { doWork(); }\n"
+                + "}";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // enterMethod called once (for covered()), not 3 times
+        verify(session, times(1)).enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any());
+    }
+
+    private InstrumentationSession createFullMockSession() {
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+        MethodInfo methodInfo = mock(MethodInfo.class);
+        FullStatementInfo stmtInfo = mock(FullStatementInfo.class);
+        FullBranchInfo branchInfo = mock(FullBranchInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any()))
+                .thenReturn(methodInfo);
+        when(methodInfo.getDataIndex()).thenReturn(0);
+        when(session.addStatement(any(), any(), anyInt(), any())).thenReturn(stmtInfo);
+        when(stmtInfo.getDataIndex()).thenReturn(1);
+        when(session.addBranch(any(), any(), anyBoolean(), anyInt(), any())).thenReturn(branchInfo);
+        when(branchInfo.getDataIndex()).thenReturn(2);
+        when(session.getVersion()).thenReturn(123456789L);
+        when(session.getCurrentFileMaxIndex()).thenReturn(10);
+        return session;
     }
 
     /**
