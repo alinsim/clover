@@ -111,7 +111,7 @@ public class BracelessControlFlowTest {
 
     @Test
     public void equalsPatternDoesNotCauseUnreachable() {
-        // This is the exact pattern from the northfox EntityModel.java bug
+        // This is the exact pattern from the real-world EntityModel.java bug
         String source = CLASS_OPEN +
                 "    public boolean equals(Object o) {\n" +
                 IF_THIS_RETURN +
