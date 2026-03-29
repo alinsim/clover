@@ -157,8 +157,18 @@ public class FullTestCaseInfo implements TestCaseInfo, Serializable {
         if (lastDot > 0 && lastDot < sourceMethodName.length()) {
             // find a class from a fully qualified test method name
             final String srcClassname = sourceMethodName.substring(0, lastDot);
-            final FullClassInfo srcClass = (rtClassname.equals(srcClassname))
-                    ? runtimeType : (FullClassInfo)project.findClass(srcClassname);
+            FullClassInfo srcClass;
+            if (rtClassname.equals(srcClassname)) {
+                srcClass = runtimeType;
+            } else {
+                srcClass = (FullClassInfo) project.findClass(srcClassname);
+                // Fall back to runtimeType when srcClassname is a simple name (not FQ).
+                // JavaParser instrumentation passes "ClassName.methodName" where ClassName
+                // is simple, but rtClassname is fully qualified from getClass().getName().
+                if (srcClass == null && runtimeType != null) {
+                    srcClass = runtimeType;
+                }
+            }
             MethodInfo testMethodFound = null;
 
             // if found then find proper method in this class as well
