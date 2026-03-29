@@ -748,6 +748,30 @@ public class AstInstrumenterTest {
     }
 
     /**
+     * Tests that expression lambda in safe context gets lambdaInc wrapping via session.
+     */
+    @Test
+    public void sessionExpressionLambdaWrappedWithLambdaInc() throws Exception {
+        String source = "class Foo { java.util.function.Supplier<String> s = () -> \"hello\"; }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // Lambda in variable initializer is a safe context — should register as method + statement
+        verify(session, atLeast(1)).enterMethod(any(), any(), any(), anyBoolean(), any(), eq(true), anyInt(), any());
+        // addStatement called for the lambdaInc wrapping
+        verify(session, atLeast(1)).addStatement(any(), any(), anyInt(), any());
+
+        String result = output.toString();
+        assertTrue("Should contain lambdaInc wrapping", result.contains("lambdaInc"));
+    }
+
+    /**
      * Tests that try-with-resources injects Tracker resource for cleanup tracking.
      */
     @Test

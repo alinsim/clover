@@ -5,6 +5,7 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
@@ -16,8 +17,11 @@ import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
+import com.github.javaparser.ast.expr.IntegerLiteralExpr;
 import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.SwitchExpr;
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.SwitchEntry;
@@ -598,17 +602,33 @@ public class AstInstrumenter {
                     new ContextSetImpl(), region, sig, false, null, true, 1,
                     LanguageConstruct.Builtin.METHOD);
 
-            // For block lambdas: inject R.inc at start of body
             if (lambda.getBody().isBlockStmt()) {
+                // Block lambda: inject R.inc at start of body
                 BlockStmt body = lambda.getBody().asBlockStmt();
                 int lambdaIndex = lambdaInfo.getDataIndex();
                 body.getStatements().addFirst(
                         StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + lambdaIndex + INC_SUFFIX));
                 instrumentBlock(body);
+            } else if (isSafeForLambdaIncWrapping(lambda)) {
+                // Expression lambda in safe context: wrap with lambdaInc()
+                FixedSourceRegion stmtRegion = new FixedSourceRegion(begin.line, begin.column);
+                FullStatementInfo stmtInfo = session.addStatement(
+                        new ContextSetImpl(), stmtRegion, 0, LanguageConstruct.Builtin.STATEMENT);
+                int methodIndex = lambdaInfo.getDataIndex();
+                int stmtIndex = stmtInfo.getDataIndex();
+                String recorderBase = extractRecorderBase();
+
+                // Build: lambdaInc(methodIndex, <original lambda>, stmtIndex)
+                MethodCallExpr wrapper = new MethodCallExpr(
+                        StaticJavaParser.parseExpression(recorderBase),
+                        "lambdaInc",
+                        new NodeList<>(
+                                new IntegerLiteralExpr(String.valueOf(methodIndex)),
+                                lambda.clone(),
+                                new IntegerLiteralExpr(String.valueOf(stmtIndex))));
+                lambda.replace(wrapper);
             }
-            // Expression lambdas: tracked as method entry only (lambdaInc wrapping
-            // requires expression-level replacement which LPP handles but needs
-            // safe-context detection — variable initializer, assignment targets only)
+            // Expression lambdas in unsafe contexts (method args, casts): skip wrapping
 
             Position end = lambda.getEnd().orElse(null);
             if (end != null) {
@@ -843,6 +863,15 @@ public class AstInstrumenter {
         }
 
         // ========== TEST DETECTION ==========
+
+        private boolean isSafeForLambdaIncWrapping(LambdaExpr lambda) {
+            if (!lambda.getParentNode().isPresent()) {
+                return false;
+            }
+            Node parent = lambda.getParentNode().get();
+            String parentType = parent.getClass().getSimpleName();
+            return "VariableDeclarator".equals(parentType) || "AssignExpr".equals(parentType);
+        }
 
         private boolean isTestMethod(MethodDeclaration method) {
             for (AnnotationExpr ann : method.getAnnotations()) {
