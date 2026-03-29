@@ -10,6 +10,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
@@ -49,7 +50,9 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.Writer;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -61,6 +64,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class AstInstrumenter {
 
     private static final String MARKER_COMMENT = "/* $$ This file has been instrumented by OpenClover $$ */";
+    private static final String INC_PREFIX = ".inc(";
+    private static final String INC_SUFFIX = ");";
 
     private AstInstrumenter() {}
 
@@ -314,6 +319,7 @@ public class AstInstrumenter {
         private final String initString;
         private final long registryVersion;
         private final ContextStore contextStore;
+        private final List<DisabledRange> disabledRanges;
 
         SessionAwareAstVisitor(InstrumentationSession session, JavaInstrumentationConfig config,
                               String recorderPrefix, String initString, long registryVersion,
@@ -324,10 +330,52 @@ public class AstInstrumenter {
             this.initString = initString;
             this.registryVersion = registryVersion;
             this.contextStore = contextStore;
+            this.disabledRanges = new ArrayList<>();
+        }
+
+        private static class DisabledRange {
+            final int startLine;
+            final int endLine;
+
+            DisabledRange(int startLine, int endLine) {
+                this.startLine = startLine;
+                this.endLine = endLine;
+            }
         }
 
         void initializeDisabledRanges(CompilationUnit cu) {
-            // TODO: Implement CLOVER:OFF/ON support
+            disabledRanges.clear();
+            List<Comment> comments = cu.getAllComments();
+            Integer offLine = null;
+
+            for (Comment comment : comments) {
+                String content = comment.getContent().trim();
+                Optional<Position> beginPos = comment.getBegin();
+
+                if (!beginPos.isPresent()) {
+                    continue;
+                }
+
+                if (content.contains("CLOVER:OFF")) {
+                    offLine = beginPos.get().line;
+                } else if (content.contains("CLOVER:ON") && offLine != null) {
+                    disabledRanges.add(new DisabledRange(offLine, beginPos.get().line));
+                    offLine = null;
+                }
+            }
+
+            if (offLine != null) {
+                disabledRanges.add(new DisabledRange(offLine, Integer.MAX_VALUE));
+            }
+        }
+
+        private boolean isInstrumentationEnabled(int line) {
+            for (DisabledRange range : disabledRanges) {
+                if (line >= range.startLine && line <= range.endLine) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override
@@ -449,11 +497,11 @@ public class AstInstrumenter {
                     region, signature, isTest, staticTestName, false, complexity,
                     LanguageConstruct.Builtin.METHOD);
 
-            // Inject R.inc(N) at method entry
+            // Inject RINC_PREFIXN) at method entry
             method.getBody().ifPresent(body -> {
                 int methodIndex = methodInfo.getDataIndex();
                 body.getStatements().addFirst(
-                        StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + methodIndex + ");"));
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +methodIndex + INC_SUFFIX));
 
                 // Instrument statements and branches in the body
                 instrumentBlock(body);
@@ -488,7 +536,7 @@ public class AstInstrumenter {
             }
             int ctorIndex = methodInfo.getDataIndex();
             body.getStatements().add(insertPos,
-                    StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + ctorIndex + ");"));
+                    StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +ctorIndex + INC_SUFFIX));
 
             instrumentBlock(body);
 
@@ -532,7 +580,7 @@ public class AstInstrumenter {
                                 LanguageConstruct.Builtin.STATEMENT);
                         int stmtIndex = stmtInfo.getDataIndex();
                         block.getStatements().add(i,
-                                StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + stmtIndex + ");"));
+                                StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +stmtIndex + INC_SUFFIX));
                         i += 2;
                     } else {
                         i++;
@@ -561,11 +609,11 @@ public class AstInstrumenter {
             if (thenStmt instanceof BlockStmt) {
                 BlockStmt thenBlock = (BlockStmt) thenStmt;
                 thenBlock.getStatements().addFirst(
-                        StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + trueIndex + ");"));
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +trueIndex + INC_SUFFIX));
                 instrumentBlock(thenBlock);
             } else {
                 BlockStmt wrapper = new BlockStmt();
-                wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + trueIndex + ");"));
+                wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +trueIndex + INC_SUFFIX));
                 wrapper.addStatement(thenStmt.clone());
                 ifStmt.setThenStmt(wrapper);
             }
@@ -576,17 +624,17 @@ public class AstInstrumenter {
                 if (elseStmt instanceof BlockStmt) {
                     BlockStmt elseBlock = (BlockStmt) elseStmt;
                     elseBlock.getStatements().addFirst(
-                            StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + falseIndex + ");"));
+                            StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +falseIndex + INC_SUFFIX));
                     instrumentBlock(elseBlock);
                 } else if (elseStmt instanceof IfStmt) {
                     BlockStmt wrapper = new BlockStmt();
-                    wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + falseIndex + ");"));
+                    wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +falseIndex + INC_SUFFIX));
                     wrapper.addStatement(elseStmt.clone());
                     ifStmt.setElseStmt(wrapper);
                     instrumentIf((IfStmt) wrapper.getStatement(1));
                 } else {
                     BlockStmt wrapper = new BlockStmt();
-                    wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + falseIndex + ");"));
+                    wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +falseIndex + INC_SUFFIX));
                     wrapper.addStatement(elseStmt.clone());
                     ifStmt.setElseStmt(wrapper);
                 }
@@ -594,7 +642,7 @@ public class AstInstrumenter {
                 // Synthetic else — LPP workaround: replace entire IfStmt
                 BlockStmt syntheticElse = new BlockStmt();
                 syntheticElse.addStatement(
-                        StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + falseIndex + ");"));
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +falseIndex + INC_SUFFIX));
                 IfStmt newIf = new IfStmt(
                         ifStmt.getCondition().clone(),
                         ifStmt.getThenStmt().clone(),
@@ -617,7 +665,7 @@ public class AstInstrumenter {
             if (body instanceof BlockStmt) {
                 BlockStmt block = (BlockStmt) body;
                 block.getStatements().addFirst(
-                        StaticJavaParser.parseStatement(recorderPrefix + ".inc(" + branchIndex + ");"));
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +branchIndex + INC_SUFFIX));
                 instrumentBlock(block);
             }
         }
@@ -744,7 +792,6 @@ public class AstInstrumenter {
      * Used by the standalone test API.
      */
     private static class InstrumentationVisitor extends VoidVisitorAdapter<Void> {
-
         private final String prefix;
         private final AtomicInteger indexCounter;
 
@@ -808,7 +855,7 @@ public class AstInstrumenter {
                     instrumentBlock((BlockStmt) stmt);
                     i++;
                 } else if (isExecutableStatement(stmt)) {
-                    // Insert R.inc(N) before this statement
+                    // Insert RINC_PREFIXN) before this statement
                     int stmtIndex = indexCounter.getAndIncrement();
                     block.getStatements().add(i, parseInc(stmtIndex));
                     i += 2; // Skip both the inc and the original statement
@@ -881,7 +928,7 @@ public class AstInstrumenter {
         }
 
         private Statement parseInc(int index) {
-            return StaticJavaParser.parseStatement(prefix + ".inc(" + index + ");");
+            return StaticJavaParser.parseStatement(prefix + INC_PREFIX + index + INC_SUFFIX);
         }
 
         private boolean isExecutableStatement(Statement stmt) {
