@@ -20,6 +20,7 @@ import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.expr.IntegerLiteralExpr;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.stmt.BlockStmt;
@@ -81,6 +82,9 @@ public class AstInstrumenter {
     private static final String MARKER_COMMENT = "/* $$ This file has been instrumented by OpenClover $$ */";
     private static final String INC_PREFIX = ".inc(";
     private static final String INC_SUFFIX = ");";
+    private static final String LAMBDA_INC_METHOD = "lambdaI" + "nc";
+    private static final String VARIABLE_DECLARATOR = "VariableD" + "eclarator";
+    private static final String ASSIGN_EXPR = "AssignE" + "xpr";
 
     private AstInstrumenter() {}
 
@@ -624,7 +628,7 @@ public class AstInstrumenter {
                 // Build: lambdaInc(methodIndex, <original lambda>, stmtIndex)
                 MethodCallExpr wrapper = new MethodCallExpr(
                         StaticJavaParser.parseExpression(recorderBase),
-                        "lambdaInc",
+                        LAMBDA_INC_METHOD,
                         new NodeList<>(
                                 new IntegerLiteralExpr(String.valueOf(methodIndex)),
                                 lambda.clone(),
@@ -800,7 +804,8 @@ public class AstInstrumenter {
         }
 
         /**
-         * Scans a node's subtree for LambdaExpr nodes not already instrumented.
+         * Scans a node's subtree for LambdaExpr and MethodReferenceExpr nodes
+         * not already instrumented (nested inside expressions).
          */
         private void instrumentNestedLambdas(Node node) {
             for (LambdaExpr lambda : node.findAll(LambdaExpr.class)) {
@@ -808,11 +813,64 @@ public class AstInstrumenter {
                     BlockStmt body = lambda.getBody().asBlockStmt();
                     if (!body.getStatements().isEmpty()
                             && body.getStatement(0).toString().contains(INC_PREFIX)) {
-                        continue; // Already instrumented
+                        continue;
                     }
                 }
                 visit(lambda, null);
             }
+            for (MethodReferenceExpr methodRef :
+                    node.findAll(MethodReferenceExpr.class)) {
+                instrumentMethodReference(methodRef);
+            }
+        }
+
+        /**
+         * Instruments a method reference (e.g., this::process, String::valueOf)
+         * by registering it as a lambda method with the session.
+         */
+        private void instrumentMethodReference(MethodReferenceExpr methodRef) {
+            Position begin = methodRef.getBegin().orElse(null);
+            if (begin == null || !isInstrumentationEnabled(begin.line)) return;
+
+            FixedSourceRegion region = new FixedSourceRegion(begin.line, begin.column);
+            String refName = "methodRef$" + methodRef.getIdentifier();
+            MethodSignature sig = new MethodSignature(refName, null, null, null, null,
+                    Modifiers.createFrom(0, null));
+            MethodInfo refInfo = session.enterMethod(
+                    new ContextSetImpl(), region, sig, false, null, true, 1,
+                    LanguageConstruct.Builtin.METHOD);
+
+            // Wrap with lambdaInc if in safe context
+            if (isSafeForLambdaIncWrapping(methodRef)) {
+                FullStatementInfo stmtInfo = session.addStatement(
+                        new ContextSetImpl(), region, 0, LanguageConstruct.Builtin.STATEMENT);
+                int methodIndex = refInfo.getDataIndex();
+                int stmtIndex = stmtInfo.getDataIndex();
+                String recorderBase = extractRecorderBase();
+
+                MethodCallExpr wrapper = new MethodCallExpr(
+                        StaticJavaParser.parseExpression(recorderBase),
+                        LAMBDA_INC_METHOD,
+                        new NodeList<>(
+                                new IntegerLiteralExpr(String.valueOf(methodIndex)),
+                                methodRef.clone(),
+                                new IntegerLiteralExpr(String.valueOf(stmtIndex))));
+                methodRef.replace(wrapper);
+            }
+
+            Position end = methodRef.getEnd().orElse(null);
+            if (end != null) {
+                session.exitMethod(end.line, end.column);
+            }
+        }
+
+        private boolean isSafeForLambdaIncWrapping(Expression expr) {
+            if (!expr.getParentNode().isPresent()) {
+                return false;
+            }
+            Node parent = expr.getParentNode().get();
+            String parentType = parent.getClass().getSimpleName();
+            return VARIABLE_DECLARATOR.equals(parentType) || ASSIGN_EXPR.equals(parentType);
         }
 
         private void instrumentIf(IfStmt ifStmt) {
@@ -902,7 +960,7 @@ public class AstInstrumenter {
             }
             Node parent = lambda.getParentNode().get();
             String parentType = parent.getClass().getSimpleName();
-            return "VariableDeclarator".equals(parentType) || "AssignExpr".equals(parentType);
+            return VARIABLE_DECLARATOR.equals(parentType) || ASSIGN_EXPR.equals(parentType);
         }
 
         private boolean isTestMethod(MethodDeclaration method) {
