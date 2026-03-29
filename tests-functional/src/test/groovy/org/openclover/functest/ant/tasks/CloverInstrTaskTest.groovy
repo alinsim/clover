@@ -1,7 +1,7 @@
 package org.openclover.functest.ant.tasks
 
 import groovy.transform.CompileStatic
-import org.openclover.core.instr.java.RecorderInstrEmitter
+import org.openclover.core.instr.java.javaparser.RecorderCodeGenerator
 import org.openclover.runtime.api.CloverException
 import org.openclover.runtime.remote.DistributedConfig
 
@@ -90,7 +90,7 @@ class CloverInstrTaskTest extends CloverBuildFileTestBase {
         conf.setPort(1111)
         conf.setNumClients(2)
         conf.setTimeout(1000)
-        getProject().setProperty("expected.dist.config", RecorderInstrEmitter.asUnicodeString(conf.toString()))
+        getProject().setProperty("expected.dist.config", RecorderCodeGenerator.asUnicodeString(conf.toString()))
         executeTarget("distributedConfiguration")
         assertPropertySet("distributed.configuration")
     }

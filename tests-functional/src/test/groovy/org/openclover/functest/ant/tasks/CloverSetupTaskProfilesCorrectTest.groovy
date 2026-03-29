@@ -6,7 +6,7 @@ import org.apache.tools.ant.Target
 import org.apache.tools.ant.Task
 import org.junit.Test
 import org.openclover.ant.tasks.CloverSetupTask
-import org.openclover.core.instr.java.RecorderInstrEmitter
+import org.openclover.core.instr.java.javaparser.RecorderCodeGenerator
 import org.openclover.runtime.CloverNames
 import org_openclover_runtime.CloverProfile
 
@@ -157,11 +157,11 @@ class CloverSetupTaskProfilesCorrectTest extends CloverSetupTaskTestBase {
         final String expectedProfilesCode =
                 "public static ${CloverProfile.name}[] profiles = { " +
                         "new ${CloverProfile.name}(" +
-                        RecorderInstrEmitter.asUnicodeString("default") + ", \"GROWABLE\", null)," +
+                        RecorderCodeGenerator.asUnicodeString("default") + ", \"GROWABLE\", null)," +
                         "new ${CloverProfile.name}(" +
-                        RecorderInstrEmitter.asUnicodeString("other") + ", \"SHARED\", null)," +
+                        RecorderCodeGenerator.asUnicodeString("other") + ", \"SHARED\", null)," +
                         "new ${CloverProfile.name}(" +
-                        RecorderInstrEmitter.asUnicodeString("remote") + ", \"FIXED\", " +
+                        RecorderCodeGenerator.asUnicodeString("remote") + ", \"FIXED\", " +
                         "\"\\u0068\\u006f\\u0073\\u0074" // ...
         assertFileContains(expectedProfilesCode, getCloverFooInstrFile(), false)
         // ... extra check for closing "};"
