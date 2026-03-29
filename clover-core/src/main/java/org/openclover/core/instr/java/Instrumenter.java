@@ -6,6 +6,7 @@ import org.openclover.core.api.instrumentation.ConcurrentInstrumentationExceptio
 import org.openclover.core.api.instrumentation.InstrumentationSession;
 import org.openclover.core.api.registry.PackageInfo;
 import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
+import org.openclover.core.instr.java.javaparser.AstInstrumenter;
 import org.openclover.core.instr.java.javaparser.SessionAwareInstrumenter;
 import org.openclover.core.registry.Clover2Registry;
 import org.openclover.core.registry.entities.FullFileInfo;
@@ -207,9 +208,15 @@ public class Instrumenter {
         // Set source encoding for the session
         session.setSourceEncoding(fileEncoding);
 
-        // Delegate to SessionAwareInstrumenter with context store
-        final FileStructureInfo fileStructureInfo = SessionAwareInstrumenter.instrument(
-                in, out, session, config, fileEncoding, registry.getContextStore());
+        // Delegate to the configured instrumenter
+        final FileStructureInfo fileStructureInfo;
+        if (config.isUseAstInstrumenter()) {
+            fileStructureInfo = AstInstrumenter.instrument(
+                    in, out, session, config, fileEncoding, registry.getContextStore());
+        } else {
+            fileStructureInfo = SessionAwareInstrumenter.instrument(
+                    in, out, session, config, fileEncoding, registry.getContextStore());
+        }
 
         // Update statistics to match ANTLR path behavior
         final FullFileInfo fileInfo = (FullFileInfo) session.getCurrentFile();

@@ -26,6 +26,9 @@ public class JavaInstrumentationConfig extends InstrumentationConfig {
     /** If true, use JavaParser for instrumentation instead of ANTLR */
     private boolean useJavaParser = true;
 
+    /** If true, use AST-based instrumenter (LexicalPreservingPrinter) instead of text-based (Insertion/SourceRewriter) */
+    private boolean useAstInstrumenter = false;
+
     /** If true, run Phase 2 bytecode scanning after compilation to instrument generated methods (Lombok, etc.) */
     private boolean hybridInstrumentation = false;
 
@@ -79,6 +82,14 @@ public class JavaInstrumentationConfig extends InstrumentationConfig {
 
     public void setUseJavaParser(boolean useJavaParser) {
         this.useJavaParser = useJavaParser;
+    }
+
+    public boolean isUseAstInstrumenter() {
+        return useAstInstrumenter;
+    }
+
+    public void setUseAstInstrumenter(boolean useAstInstrumenter) {
+        this.useAstInstrumenter = useAstInstrumenter;
     }
 
     public boolean isHybridInstrumentation() {
