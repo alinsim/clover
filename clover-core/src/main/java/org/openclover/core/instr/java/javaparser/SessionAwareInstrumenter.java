@@ -628,7 +628,11 @@ public class SessionAwareInstrumenter {
 
                     // Inject method entry tracking using session-allocated index
                     if (isTest) {
-                        injectTestMethodWrapper(body.get(), insertions, methodInfo.getDataIndex(), name);
+                        // globalSliceEnd needs fully-qualified "ClassName.methodName" for test resolution
+                        String qualifiedTestName = methodDecl.findAncestor(ClassOrInterfaceDeclaration.class)
+                                .map(c -> c.getNameAsString() + "." + name)
+                                .orElse(name);
+                        injectTestMethodWrapper(body.get(), insertions, methodInfo.getDataIndex(), qualifiedTestName);
                     } else {
                         injectMethodEntry(body.get(), insertions, methodInfo.getDataIndex());
                     }

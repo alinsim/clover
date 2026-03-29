@@ -618,7 +618,10 @@ public class SessionAwareInstrumenterTest {
         assertTrue("Test method should have try block", instrumented.contains("try{"));
         assertTrue("Test method should have catch clause", instrumented.contains("catch(Throwable"));
         assertTrue("Test method should have finally clause", instrumented.contains("finally{"));
-        assertTrue("Test method should contain method name in globalSliceEnd", instrumented.contains("\"testFoo\""));
+        // globalSliceEnd must pass fully-qualified "ClassName.methodName" for test resolution.
+        // Bare "methodName" fails resolution because FullTestCaseInfo.resolve() splits on last dot.
+        assertTrue("globalSliceEnd must use fully-qualified ClassName.methodName",
+                instrumented.contains("\"FooTest.testFoo\""));
     }
 
     @Test
@@ -748,7 +751,8 @@ public class SessionAwareInstrumenterTest {
 
         String instrumented = output.toString();
 
-        assertTrue("globalSliceEnd should contain exact method name", instrumented.contains("\"myTestMethod\""));
+        assertTrue("globalSliceEnd should contain fully-qualified ClassName.methodName",
+                instrumented.contains("\"MethodNameTest.myTestMethod\""));
     }
 
     @Test
