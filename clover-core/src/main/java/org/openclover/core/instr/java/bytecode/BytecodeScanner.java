@@ -75,6 +75,13 @@ public class BytecodeScanner {
             ClassReader reader = new ClassReader(fis);
             String className = reader.getClassName(); // e.g., "com/example/User"
 
+            // Skip classes not belonging to the project: if neither the class itself
+            // nor its outer class (for inner classes like User$Builder) is in Phase 1
+            // registry, it's a dependency class (e.g., shaded jar) — not our code.
+            if (!isProjectClass(className, phase1Methods)) {
+                return;
+            }
+
             // Get the set of Phase 1 methods for this class (empty set if class not in Phase 1)
             Set<MethodSignatureKey> registeredMethods =
                 phase1Methods.getOrDefault(className, Collections.emptySet());
@@ -110,5 +117,24 @@ public class BytecodeScanner {
                 }
             }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         }
+    }
+
+    /**
+     * Returns true if the class belongs to the project (was seen by Phase 1).
+     * A class belongs to the project if:
+     * - It is directly in the Phase 1 registry, OR
+     * - Its outer class (for inner classes like User$Builder) is in the registry
+     */
+    private boolean isProjectClass(String className, Map<String, Set<MethodSignatureKey>> phase1Methods) {
+        if (phase1Methods.containsKey(className)) {
+            return true;
+        }
+        // Check outer class for inner classes (className contains '$')
+        int dollarIndex = className.indexOf('$');
+        if (dollarIndex > 0) {
+            String outerClass = className.substring(0, dollarIndex);
+            return phase1Methods.containsKey(outerClass);
+        }
+        return false;
     }
 }

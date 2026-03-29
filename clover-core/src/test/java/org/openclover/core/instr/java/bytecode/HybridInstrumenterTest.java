@@ -72,7 +72,9 @@ public class HybridInstrumenterTest {
             {METHOD_SET_NAME, DESC_STRING_PARAM, String.valueOf(Opcodes.ACC_PUBLIC)}
         });
 
-        Map<String, Set<MethodSignatureKey>> phase1Methods = Collections.emptyMap();
+        // Class must be in phase1Methods (even with empty set) to be recognized as a project class
+        Map<String, Set<MethodSignatureKey>> phase1Methods = new HashMap<>();
+        phase1Methods.put(CLASS_NAME, new HashSet<>());
 
         BytecodeScanner scanner = new BytecodeScanner();
         List<GeneratedMethod> generated = scanner.findGeneratedMethods(classDir, phase1Methods);
@@ -133,11 +135,14 @@ public class HybridInstrumenterTest {
         cw.visitEnd();
         writeClassFile(CLASS_NAME, cw.toByteArray());
 
-        Map<String, Set<MethodSignatureKey>> phase1Methods = Collections.emptyMap();
+        // Class must be in phase1Methods to be recognized as a project class
+        Map<String, Set<MethodSignatureKey>> phase1Methods = new HashMap<>();
+        phase1Methods.put(CLASS_NAME, new HashSet<>());
 
         BytecodeScanner scanner = new BytecodeScanner();
         List<GeneratedMethod> generated = scanner.findGeneratedMethods(classDir, phase1Methods);
 
+        // Only getName found (bridge and synthetic filtered)
         assertEquals(1, generated.size());
         assertEquals(METHOD_GET_NAME, generated.get(0).getMethodName());
     }

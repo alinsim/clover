@@ -117,25 +117,46 @@ public class BytecodeScannerTest {
     }
 
     @Test
-    public void findGeneratedMethodsHandlesClassNotInRegistry() throws IOException {
-        // Create a .class file with methods
-        File classFile = createClassFile(COM_EXAMPLE_USER,
-            GET_NAME_METHOD_SPEC,
-            SET_NAME_METHOD_SPEC
+    public void findGeneratedMethodsSkipsClassNotInRegistryNorInnerClass() throws IOException {
+        // Simulate a shaded dependency class — not in Phase 1, not an inner class of any Phase 1 class.
+        // These should be SKIPPED to avoid over-counting dependency methods as "generated."
+        File classFile = createClassFile("io/vertx/core/Handler",
+            GET_NAME_METHOD_SPEC
         );
 
-        // Empty registry (class not in Phase 1)
-        Map<String, Set<MethodSignatureKey>> phase1Methods = Collections.emptyMap();
+        // Phase 1 only knows about com/example/User — io/vertx is a dependency
+        Map<String, Set<MethodSignatureKey>> phase1Methods = new HashMap<>();
+        phase1Methods.put(COM_EXAMPLE_USER, new HashSet<>());
 
-        // All non-filtered methods should be reported as generated
         List<GeneratedMethod> generated = scanner.findGeneratedMethods(
             tempDir.getRoot(),
             phase1Methods
         );
 
+        // Dependency class should be skipped — 0 generated methods
+        assertEquals(0, generated.size());
+    }
+
+    @Test
+    public void findGeneratedMethodsIncludesInnerClassOfRegistryClass() throws IOException {
+        // Lombok generates User$UserBuilder — an inner class of User which IS in Phase 1.
+        // These should be included.
+        File classFile = createClassFile("com/example/User$UserBuilder",
+            "public:name:(Ljava/lang/String;)Lcom/example/User$UserBuilder;",
+            "public:build:()Lcom/example/User;"
+        );
+
+        // Phase 1 knows about com/example/User (outer class)
+        Map<String, Set<MethodSignatureKey>> phase1Methods = new HashMap<>();
+        phase1Methods.put(COM_EXAMPLE_USER, new HashSet<>());
+
+        List<GeneratedMethod> generated = scanner.findGeneratedMethods(
+            tempDir.getRoot(),
+            phase1Methods
+        );
+
+        // Inner class of a registry class → included
         assertEquals(2, generated.size());
-        assertTrue(generated.stream().anyMatch(m -> m.getMethodName().equals(GET_NAME)));
-        assertTrue(generated.stream().anyMatch(m -> m.getMethodName().equals(SET_NAME)));
     }
 
     /**
