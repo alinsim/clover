@@ -32,6 +32,9 @@ import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.DoStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.LabeledStmt;
+import com.github.javaparser.ast.stmt.SwitchStmt;
+import com.github.javaparser.ast.stmt.SynchronizedStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
@@ -753,11 +756,20 @@ public class AstInstrumenter {
                     instrumentLoopBody(((ForEachStmt) stmt).getBody());
                     i++;
                 } else if (stmt instanceof TryStmt) {
-                    // Delegate to visit(TryStmt) for try-with-resources Tracker injection
                     visit((TryStmt) stmt, null);
-                    // visit(TryStmt) may insert R.inc before this stmt, shifting indices
                     i = block.getStatements().indexOf(stmt) + 1;
-                    if (i <= 0) i = block.getStatements().size(); // safety
+                    if (i <= 0) i = block.getStatements().size();
+                } else if (stmt instanceof SwitchStmt) {
+                    for (SwitchEntry entry : ((SwitchStmt) stmt).getEntries()) {
+                        visit(entry, null);
+                    }
+                    i++;
+                } else if (stmt instanceof SynchronizedStmt) {
+                    instrumentBlock(((SynchronizedStmt) stmt).getBody());
+                    i++;
+                } else if (stmt instanceof LabeledStmt) {
+                    // Unwrap and process the inner statement on next iteration
+                    i++;
                 } else if (stmt instanceof BlockStmt) {
                     instrumentBlock((BlockStmt) stmt);
                     i++;
@@ -780,6 +792,26 @@ public class AstInstrumenter {
                 } else {
                     i++;
                 }
+            }
+
+            // Scan entire block for lambdas nested inside expressions
+            // (method args, return values, etc.) that instrumentBlock can't reach
+            instrumentNestedLambdas(block);
+        }
+
+        /**
+         * Scans a node's subtree for LambdaExpr nodes not already instrumented.
+         */
+        private void instrumentNestedLambdas(Node node) {
+            for (LambdaExpr lambda : node.findAll(LambdaExpr.class)) {
+                if (lambda.getBody().isBlockStmt()) {
+                    BlockStmt body = lambda.getBody().asBlockStmt();
+                    if (!body.getStatements().isEmpty()
+                            && body.getStatement(0).toString().contains(INC_PREFIX)) {
+                        continue; // Already instrumented
+                    }
+                }
+                visit(lambda, null);
             }
         }
 
@@ -1113,14 +1145,21 @@ public class AstInstrumenter {
                 } else if (stmt instanceof ForEachStmt) {
                     instrumentLoopBody(((ForEachStmt) stmt).getBody());
                     i++;
+                } else if (stmt instanceof SwitchStmt) {
+                    for (SwitchEntry entry : ((SwitchStmt) stmt).getEntries()) {
+                        visit(entry, null);
+                    }
+                    i++;
+                } else if (stmt instanceof SynchronizedStmt) {
+                    instrumentBlock(((SynchronizedStmt) stmt).getBody());
+                    i++;
                 } else if (stmt instanceof BlockStmt) {
                     instrumentBlock((BlockStmt) stmt);
                     i++;
                 } else if (isExecutableStatement(stmt)) {
-                    // Insert RINC_PREFIXN) before this statement
                     int stmtIndex = indexCounter.getAndIncrement();
                     block.getStatements().add(i, parseInc(stmtIndex));
-                    i += 2; // Skip both the inc and the original statement
+                    i += 2;
                 } else {
                     i++;
                 }

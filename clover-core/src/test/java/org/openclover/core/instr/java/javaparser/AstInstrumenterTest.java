@@ -814,4 +814,55 @@ public class AstInstrumenterTest {
         // The static initializer's statement should trigger addStatement
         verify(session, atLeastOnce()).addStatement(any(), any(), anyInt(), any());
     }
+
+    // ========== EXPRESSION RECURSION TESTS ==========
+
+    /**
+     * Tests that a lambda inside a method body (in a method call argument)
+     * gets registered with the session as a lambda method.
+     */
+    @Test
+    public void sessionLambdaInsideMethodBodyGetsRegistered() throws Exception {
+        String source = "class Foo { void bar(java.util.List<String> list) { list.forEach(s -> System.out.println(s)); } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // enterMethod should be called at least twice: once for bar(), once for the lambda
+        verify(session, atLeast(2)).enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any());
+    }
+
+    /**
+     * Tests that a block lambda inside a method body gets its body instrumented.
+     */
+    @Test
+    public void blockLambdaInsideMethodBodyInstrumented() {
+        String source = "class Foo { void bar(java.util.List<String> list) { list.forEach(s -> { System.out.println(s); }); } }";
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        // The block lambda body should have R.inc()
+        // Count occurrences — method entry + lambda entry + statement inside lambda = at least 3
+        int incCount = countOccurrences(output, INC_MARKER);
+        assertTrue("Should have at least 3 R.inc calls (method + lambda + stmt)", incCount >= 3);
+        assertParseable(output);
+    }
+
+    /**
+     * Tests that switch statements inside method bodies get their entries instrumented.
+     */
+    @Test
+    public void switchInsideMethodBodyInstrumented() {
+        String source = "class Foo { void bar(int x) { switch (x) { case 1: System.out.println(1); break; default: System.out.println(0); } } }";
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        // Method entry + at least one switch case statement
+        int incCount = countOccurrences(output, INC_MARKER);
+        assertTrue("Should have at least 3 R.inc calls (method + 2 case stmts)", incCount >= 3);
+        assertParseable(output);
+    }
 }
