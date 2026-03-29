@@ -736,20 +736,27 @@ public class SessionAwareInstrumenter {
                     int trueIndex = branchInfo.getDataIndex();
                     int falseIndex = trueIndex + 1;
 
-                    // True branch: R.inc(trueIndex) in then block
-                    instrumentBranchBodyWithIndex(thenStmt, trueIndex, insertions);
-
-                    // False branch: R.inc(falseIndex) in else block or synthetic else
+                    // Instrument then and else branches
                     Optional<Statement> elseStmt = stmt.getElseStmt();
                     if (elseStmt.isPresent()) {
+                        instrumentBranchBodyWithIndex(thenStmt, trueIndex, insertions);
                         instrumentBranchBodyWithIndex(elseStmt.get(), falseIndex, insertions);
                     } else {
-                        // No else: synthesize else { R.inc(falseIndex); }
-                        Optional<Position> thenEnd = thenStmt.getEnd();
-                        if (thenEnd.isPresent()) {
-                            String incCode = recorderPrefix + INC_PREFIX + falseIndex + INC_SUFFIX;
-                            insertions.add(Insertion.after(thenEnd.get().line, thenEnd.get().column,
-                                    "else{" + incCode + "}", 16));
+                        // No else: wrap + branch inc + synthetic else as one unit.
+                        Optional<Position> thenEndPos = thenStmt.getEnd();
+                        if (thenEndPos.isPresent()) {
+                            String trueInc = recorderPrefix + INC_PREFIX + trueIndex + INC_SUFFIX;
+                            String falseInc = recorderPrefix + INC_PREFIX + falseIndex + INC_SUFFIX;
+                            if (thenStmt instanceof BlockStmt) {
+                                insertions.add(Insertion.after(thenPos.get().line, thenPos.get().column, trueInc, 15));
+                                insertions.add(Insertion.after(thenEndPos.get().line, thenEndPos.get().column,
+                                        "else{" + falseInc + "}", 16));
+                            } else {
+                                insertions.add(Insertion.before(thenPos.get().line, thenPos.get().column,
+                                        "{" + trueInc, 25));
+                                insertions.add(Insertion.after(thenEndPos.get().line, thenEndPos.get().column,
+                                        "}else{" + falseInc + "}", 26));
+                            }
                         }
                     }
                 }

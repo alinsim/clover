@@ -347,21 +347,39 @@ public class JavaParserInstrumenter {
             int trueIndex = indexCounter.getAndIncrement();
             int falseIndex = indexCounter.getAndIncrement();
 
-            // Instrument then branch (true) with trueIndex
+            // Instrument then and else branches
             Statement thenStmt = stmt.getThenStmt();
-            instrumentBranchWithIndex(thenStmt, trueIndex, insertions);
-
-            // Instrument else branch (false) with falseIndex
             Optional<Statement> elseStmt = stmt.getElseStmt();
+
             if (elseStmt.isPresent()) {
+                // Has else: both branches use normal instrumentBranchWithIndex (handles braces)
+                instrumentBranchWithIndex(thenStmt, trueIndex, insertions);
                 instrumentBranchWithIndex(elseStmt.get(), falseIndex, insertions);
             } else {
-                // No else block: synthesize else { R.inc(falseIndex); }
+                // No else: need brace wrapping + branch inc + synthetic else as one unit.
+                // Cannot rely on statement instrumenter for braces because the synthetic else
+                // must come immediately after the then body's closing brace.
+                Optional<Position> thenBegin = thenStmt.getBegin();
                 Optional<Position> thenEnd = thenStmt.getEnd();
-                if (thenEnd.isPresent() && isInstrumentationEnabled(thenEnd.get().line)) {
-                    String incCode = recorderPrefix + INC_PREFIX + falseIndex + INC_SUFFIX;
-                    insertions.add(Insertion.after(thenEnd.get().line, thenEnd.get().column,
-                            "else{" + incCode + "}", 16));
+                if (thenBegin.isPresent() && thenEnd.isPresent()
+                        && isInstrumentationEnabled(thenBegin.get().line)) {
+                    String trueInc = recorderPrefix + INC_PREFIX + trueIndex + INC_SUFFIX;
+                    String falseInc = recorderPrefix + INC_PREFIX + falseIndex + INC_SUFFIX;
+                    if (thenStmt instanceof BlockStmt) {
+                        // Already braced: inject true inc inside, append else after
+                        insertions.add(Insertion.after(thenBegin.get().line, thenBegin.get().column, trueInc, 15));
+                        insertions.add(Insertion.after(thenEnd.get().line, thenEnd.get().column,
+                                "else{" + falseInc + "}", 16));
+                    } else {
+                        // Braceless: single insertion that wraps + adds synthetic else
+                        // Use order 25 (higher than statement instrumenter's 20-21) so this
+                        // wrapping takes precedence and the statement instrumenter's
+                        // needsBracesWrapping sees parent is still IfStmt but we already handled it.
+                        insertions.add(Insertion.before(thenBegin.get().line, thenBegin.get().column,
+                                "{" + trueInc, 25));
+                        insertions.add(Insertion.after(thenEnd.get().line, thenEnd.get().column,
+                                "}else{" + falseInc + "}", 26));
+                    }
                 }
             }
 
@@ -741,8 +759,10 @@ public class JavaParserInstrumenter {
             String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
 
             if (branchBody instanceof BlockStmt) {
+                // Already braced: inject R.inc() after the opening brace
                 insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
             } else {
+                // Braceless body: wrap with braces + R.inc()
                 Optional<Position> end = branchBody.getEnd();
                 if (end.isPresent()) {
                     insertions.add(Insertion.before(pos.get().line, pos.get().column, "{" + incCode, 15));

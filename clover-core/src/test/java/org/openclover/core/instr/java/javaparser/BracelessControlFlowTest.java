@@ -110,6 +110,29 @@ public class BracelessControlFlowTest {
     }
 
     @Test
+    public void bracelessIfSyntheticElseNotInsideThenBody() {
+        // Reproduces: if (this == o) {R.inc(T);return true;else{R.inc(F);}}
+        // The synthetic else for branch tracking must come AFTER the closing brace
+        // of the then body, not inside it.
+        String source = CLASS_OPEN +
+                BOOL_M_OPEN +
+                IF_THIS_RETURN +
+                RETURN_FALSE +
+                CLOSE_METHOD +
+                "}";
+        String result = instrument(source);
+
+        // The 'else' must NOT appear before the closing brace of the then-body
+        assertFalse("Synthetic else must not be inside the then-body braces",
+                result.contains("return true;else{"));
+        // Correct pattern: }else{ (the else comes after the brace)
+        if (result.contains("else{")) {
+            assertTrue("Synthetic else must come after closing brace of then body",
+                    result.contains("}else{"));
+        }
+    }
+
+    @Test
     public void equalsPatternDoesNotCauseUnreachable() {
         // This is the exact pattern from the real-world EntityModel.java bug
         String source = CLASS_OPEN +
