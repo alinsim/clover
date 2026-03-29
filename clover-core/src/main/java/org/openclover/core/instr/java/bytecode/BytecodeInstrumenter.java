@@ -63,7 +63,10 @@ public class BytecodeInstrumenter {
 
         // Skip interfaces — adding public static non-final fields is illegal in interfaces
         // and causes ClassFormatError (e.g., "Illegal field modifiers in class: 0x9")
-        if ((reader.getAccess() & Opcodes.ACC_INTERFACE) != 0) {
+        // Skip enums — injecting recorder init into <clinit> runs before enum constants
+        // are initialized, causing NoClassDefFoundError on first access
+        int classAccess = reader.getAccess();
+        if ((classAccess & Opcodes.ACC_INTERFACE) != 0 || (classAccess & Opcodes.ACC_ENUM) != 0) {
             return null;
         }
 

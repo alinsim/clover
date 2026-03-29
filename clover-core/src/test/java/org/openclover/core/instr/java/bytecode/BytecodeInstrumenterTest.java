@@ -56,6 +56,11 @@ public class BytecodeInstrumenterTest {
     private static final String METHOD_NAME_TEST_SOMETHING = "testSomething";
     private static final String JUNIT5_TEST_ANNOTATION = "Lorg/junit/jupiter/api/Test;";
     private static final String INTERFACE_CLASS_NAME = "com/example/YpHeader";
+    private static final String ENUM_CLASS_NAME = "com/example/EntityType";
+    private static final String ENUM_VALUES_DESC = "()[Lcom/example/EntityType;";
+    private static final String ENUM_VALUEOF_DESC = "(Ljava/lang/String;)Lcom/example/EntityType;";
+    private static final String METHOD_VALUES = "values";
+    private static final String METHOD_VALUEOF = "valueOf";
     private static final String METHOD_DESC_STRING_RETURN = "()Ljava/lang/String;";
 
     @Test
@@ -354,6 +359,57 @@ public class BytecodeInstrumenterTest {
         List<String> instructions = getMethodInstructions(result, METHOD_NAME_PROCESS, METHOD_DESC_OBJECT_VOID);
         assertTrue(MSG_SHOULD_HAVE_INC,
             instructions.stream().anyMatch(s -> s.contains(OPCODE_INVOKEVIRTUAL) && s.contains(METHOD_NAME_INC)));
+    }
+
+    @Test
+    public void instrumentSkipsEnumsWithoutCorruptingStaticInitializer() {
+        // Reproduce: NoClassDefFoundError: Could not initialize class EntityType
+        // Phase 2 injects recorder init into enum's <clinit>, which runs BEFORE enum
+        // constants are initialized. The Clover.getRecorder() call fails (runtime not
+        // ready), poisoning the enum's static init — all subsequent access throws
+        // NoClassDefFoundError. Fix: skip enums entirely.
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_SUPER | Opcodes.ACC_ENUM,
+                ENUM_CLASS_NAME, null, "java/lang/Enum", null);
+
+        // Enum constant fields
+        cw.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL | Opcodes.ACC_ENUM,
+                "CANDIDATE", "L" + ENUM_CLASS_NAME + ";", null, null).visitEnd();
+        cw.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL | Opcodes.ACC_ENUM,
+                "SERIES", "L" + ENUM_CLASS_NAME + ";", null, null).visitEnd();
+
+        // Compiler-generated values() method
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                METHOD_VALUES, ENUM_VALUES_DESC, null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitInsn(Opcodes.ARETURN);
+        mv.visitMaxs(1, 0);
+        mv.visitEnd();
+
+        // Compiler-generated valueOf(String) method
+        mv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                METHOD_VALUEOF, ENUM_VALUEOF_DESC, null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitInsn(Opcodes.ARETURN);
+        mv.visitMaxs(1, 1);
+        mv.visitEnd();
+
+        cw.visitEnd();
+        byte[] classBytes = cw.toByteArray();
+
+        Map<String, Integer> methodIndices = new HashMap<>();
+        methodIndices.put(METHOD_VALUES + ENUM_VALUES_DESC, 42);
+        methodIndices.put(METHOD_VALUEOF + ENUM_VALUEOF_DESC, 43);
+
+        BytecodeInstrumenter.RecorderConfig config = new BytecodeInstrumenter.RecorderConfig(
+                TEST_DB_PATH, 1234L, 5678L, 100);
+        BytecodeInstrumenter instrumenter = new BytecodeInstrumenter(config);
+
+        byte[] result = instrumenter.instrument(classBytes, methodIndices);
+
+        assertNull("Enums should not be instrumented (would corrupt static initializer)", result);
     }
 
     @Test
