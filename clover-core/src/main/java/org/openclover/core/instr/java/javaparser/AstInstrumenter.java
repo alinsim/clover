@@ -14,8 +14,12 @@ import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
+import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
+import com.github.javaparser.ast.stmt.SwitchEntry;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
@@ -545,6 +549,119 @@ public class AstInstrumenter {
             if (end != null) {
                 session.exitMethod(end.line, end.column);
             }
+        }
+
+        // ========== LAMBDA INSTRUMENTATION ==========
+
+        @Override
+        public void visit(LambdaExpr lambda, Void arg) {
+            Position begin = lambda.getBegin().orElse(null);
+            if (begin == null || !isInstrumentationEnabled(begin.line)) {
+                super.visit(lambda, arg);
+                return;
+            }
+
+            // Register lambda as a method with the session
+            FixedSourceRegion region = new FixedSourceRegion(begin.line, begin.column);
+            MethodSignature sig = new MethodSignature("lambda", null, null, null, null,
+                    Modifiers.createFrom(0, null));
+            MethodInfo lambdaInfo = session.enterMethod(
+                    new ContextSetImpl(), region, sig, false, null, true, 1,
+                    LanguageConstruct.Builtin.METHOD);
+
+            // For block lambdas: inject R.inc at start of body
+            if (lambda.getBody().isBlockStmt()) {
+                BlockStmt body = lambda.getBody().asBlockStmt();
+                int lambdaIndex = lambdaInfo.getDataIndex();
+                body.getStatements().addFirst(
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + lambdaIndex + INC_SUFFIX));
+                instrumentBlock(body);
+            }
+            // Expression lambdas: tracked as method entry only (lambdaInc wrapping
+            // requires expression-level replacement which LPP handles but needs
+            // safe-context detection — variable initializer, assignment targets only)
+
+            Position end = lambda.getEnd().orElse(null);
+            if (end != null) {
+                session.exitMethod(end.line, end.column);
+            }
+        }
+
+        // ========== TRY-WITH-RESOURCES INSTRUMENTATION ==========
+
+        @Override
+        public void visit(TryStmt tryStmt, Void arg) {
+            // Only special-case try-with-resources
+            if (!tryStmt.getResources().isEmpty()) {
+                Position begin = tryStmt.getBegin().orElse(null);
+                if (begin != null && isInstrumentationEnabled(begin.line)) {
+                    // Register entry statement
+                    FixedSourceRegion region = new FixedSourceRegion(begin.line, begin.column);
+                    FullStatementInfo entryInfo = session.addStatement(
+                            new ContextSetImpl(), region, 0,
+                            LanguageConstruct.Builtin.STATEMENT);
+
+                    // Insert R.inc(entryIndex) before the try statement in its parent block
+                    int entryIndex = entryInfo.getDataIndex();
+                    tryStmt.getParentNode().ifPresent(parent -> {
+                        if (parent instanceof BlockStmt) {
+                            BlockStmt parentBlock = (BlockStmt) parent;
+                            int tryPos = parentBlock.getStatements().indexOf(tryStmt);
+                            if (tryPos >= 0) {
+                                parentBlock.getStatements().add(tryPos,
+                                        StaticJavaParser.parseStatement(
+                                                recorderPrefix + INC_PREFIX + entryIndex + INC_SUFFIX));
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Instrument the try body normally
+            instrumentBlock(tryStmt.getTryBlock());
+
+            // Instrument catch blocks
+            for (CatchClause catchClause : tryStmt.getCatchClauses()) {
+                instrumentBlock(catchClause.getBody());
+            }
+
+            // Instrument finally block if present
+            tryStmt.getFinallyBlock().ifPresent(this::instrumentBlock);
+
+            // Don't call super.visit — we handled children above
+        }
+
+        // ========== SWITCH EXPRESSION INSTRUMENTATION ==========
+
+        @Override
+        public void visit(SwitchEntry entry, Void arg) {
+            // Only handle switch statement entries (not switch expression entries)
+            if (entry.getParentNode().isPresent()
+                    && !(entry.getParentNode().get() instanceof SwitchExpr)) {
+
+                List<Statement> statements = entry.getStatements();
+                if (!statements.isEmpty()) {
+                    Statement first = statements.get(0);
+                    Position pos = first.getBegin().orElse(null);
+                    if (pos != null && isInstrumentationEnabled(pos.line)) {
+                        if (first instanceof BlockStmt) {
+                            // Arrow-case with block: case X -> { ... }
+                            instrumentBlock((BlockStmt) first);
+                        } else if (isExecutableStatement(first)) {
+                            // Colon-case: case X: stmt; — insert R.inc before first statement
+                            FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
+                            FullStatementInfo stmtInfo = session.addStatement(
+                                    new ContextSetImpl(), region, 0,
+                                    LanguageConstruct.Builtin.STATEMENT);
+                            int stmtIndex = stmtInfo.getDataIndex();
+                            statements.add(0,
+                                    StaticJavaParser.parseStatement(
+                                            recorderPrefix + INC_PREFIX + stmtIndex + INC_SUFFIX));
+                        }
+                    }
+                }
+            }
+            super.visit(entry, arg);
         }
 
         // ========== STATEMENT & BRANCH INSTRUMENTATION ==========
