@@ -703,4 +703,38 @@ public class AstInstrumenterTest {
             throw new AssertionError("RecorderCodeGenerator output is NOT parseable when wrapped:\n" + wrappedSource, e);
         }
     }
+
+    // ========== STATIC INITIALIZER TEST ==========
+
+    /**
+     * Tests that static initializer blocks are instrumented.
+     */
+    @Test
+    public void instrumentsStaticInitializerBlock() {
+        String source = "class Foo { static { System.out.println(\"init\"); } }";
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        assertTrue("Static initializer should have R.inc", output.contains(INC_MARKER));
+        assertTrue("Should preserve original statement", output.contains("System.out.println"));
+        assertParseable(output);
+    }
+
+    /**
+     * Tests that static initializer blocks register with session.
+     */
+    @Test
+    public void sessionStaticInitializerRegistered() throws Exception {
+        String source = "class Foo { static { int x = 1; } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // The static initializer's statement should trigger addStatement
+        verify(session, atLeastOnce()).addStatement(any(), any(), anyInt(), any());
+    }
 }

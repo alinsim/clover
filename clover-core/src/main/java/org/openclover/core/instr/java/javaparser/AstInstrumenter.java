@@ -9,6 +9,7 @@ import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
@@ -557,6 +558,23 @@ public class AstInstrumenter {
             }
         }
 
+        // ========== STATIC INITIALIZER INSTRUMENTATION ==========
+
+        @Override
+        public void visit(InitializerDeclaration initDecl, Void arg) {
+            Position begin = initDecl.getBegin().orElse(null);
+            Position end = initDecl.getEnd().orElse(null);
+            if (begin == null || !isInstrumentationEnabled(begin.line)) {
+                super.visit(initDecl, arg);
+                return;
+            }
+
+            BlockStmt body = initDecl.getBody();
+            instrumentBlock(body);
+
+            // Don't call super.visit — instrumentBlock handles children
+        }
+
         // ========== LAMBDA INSTRUMENTATION ==========
 
         @Override
@@ -981,9 +999,12 @@ public class AstInstrumenter {
             instrumentBlock(body);
         }
 
+        @Override
+        public void visit(InitializerDeclaration initDecl, Void arg) {
+            instrumentBlock(initDecl.getBody());
+        }
+
         private void instrumentBlock(BlockStmt block) {
-            // Iterate statements — instrument each one, handle branches
-            // We iterate by index because we're inserting new statements
             int i = 0;
             while (i < block.getStatements().size()) {
                 Statement stmt = block.getStatement(i);
