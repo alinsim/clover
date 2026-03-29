@@ -681,7 +681,7 @@ public class FullClassInfo
      */
     public MethodInfo getTestMethodDeclaration(String methodname) {
         for (MethodInfo methodInfo : methods) {
-            // Match by name — do not require isPublic (JUnit 5 tests are package-private)
+            // Match by name — JUnit 5 tests are typically package-private (not public)
             if (methodInfo.getSimpleName().equals(methodname)) {
                 return methodInfo;
             }

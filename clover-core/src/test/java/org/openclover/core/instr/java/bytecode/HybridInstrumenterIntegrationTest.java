@@ -336,10 +336,13 @@ public class HybridInstrumenterIntegrationTest {
             }
         }
 
-        // Same-class generated methods are NOT registered (would create duplicate class entry).
-        // They still get coverage via R.inc() but don't appear as individual report entries.
-        // Only Phase 1's getDisplayName should be in the registry.
-        assertEquals("Registry should have 1 method (Phase 1 only, no same-class duplicates)", 1, totalMethods);
+        // With rollup implementation: generated methods ARE added to parent class.
+        // Phase 1: getDisplayName (1 method)
+        // Phase 2: getName, setName (2 generated methods rolled up to User class)
+        // Total: 3 methods in User class
+        assertEquals("Registry should have 3 methods (1 Phase 1 + 2 rolled up)", 3, totalMethods);
+        assertTrue("getName should be found in registry", foundGetName);
+        assertTrue("setName should be found in registry", foundSetName);
 
         // Verify NO duplicate class names
         int userClassCount = 0;

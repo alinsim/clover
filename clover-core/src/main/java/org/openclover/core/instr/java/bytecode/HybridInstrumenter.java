@@ -1,25 +1,25 @@
 package org.openclover.core.instr.java.bytecode;
 
-import org.openclover.core.api.instrumentation.ConcurrentInstrumentationException;
-import org.openclover.core.api.instrumentation.InstrumentationSession;
 import org.openclover.core.api.registry.ClassInfo;
 import org.openclover.core.api.registry.FileInfo;
 import org.openclover.core.api.registry.MethodInfo;
 import org.openclover.core.api.registry.PackageInfo;
 import org.openclover.core.api.registry.ProjectInfo;
 import org.openclover.core.context.ContextSetImpl;
-import org.openclover.core.instr.InstrumentationSessionImpl;
 import org.openclover.core.registry.Clover2Registry;
 import org.openclover.core.registry.FixedSourceRegion;
+import org.openclover.core.registry.entities.BasicElementInfo;
+import org.openclover.core.registry.entities.FullClassInfo;
+import org.openclover.core.registry.entities.FullFileInfo;
+import org.openclover.core.registry.entities.FullMethodInfo;
 import org.openclover.core.registry.entities.MethodSignature;
-import org.openclover.core.registry.entities.Modifiers;
+import org.openclover.core.spi.lang.LanguageConstruct;
 import org.openclover.runtime.Logger;
 import org.openclover.runtime.api.CloverException;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -119,16 +119,16 @@ public class HybridInstrumenter {
         Map<GeneratedMethod, Integer> indexMap = allocator.allocateIndices(generatedMethods);
         int totalMaxIndex = allocator.getTotalMaxIndex();
 
-        // 5. Register only NEW classes (not in Phase 1) in registry for report visibility.
-        //    Classes that already exist in Phase 1 are skipped to avoid duplicate entries.
-        //    Their generated methods still get coverage via R.inc() with allocated indices.
+        // 5. Roll up generated methods to their parent classes in the registry.
+        //    Inner class methods (User$UserBuilder) are added to the parent class (User).
+        //    If no parent exists in Phase 1, the methods are skipped (orphan handling).
         try {
-            boolean registered = registerNewClassesInRegistry(registry, generatedMethods, phase1Methods, indexMap);
-            if (registered) {
-                registry.saveAndAppendToFile();
+            boolean updated = rollupGeneratedMethods(registry, generatedMethods, indexMap);
+            if (updated) {
+                registry.saveAndOverwriteFile();
             }
-        } catch (ConcurrentInstrumentationException e) {
-            throw new CloverException("Phase 2 registry update failed", e);
+        } catch (Exception e) {
+            throw new CloverException("Phase 2 registry rollup failed", e);
         }
 
         // 6. Create instrumenter with recorder config
@@ -198,80 +198,101 @@ public class HybridInstrumenter {
     }
 
     /**
-     * Registers generated methods in the Clover registry via a Phase 2 instrumentation session.
-     * Uses a unique checksum to avoid reusing Phase 1's data indices.
-     * Returns a map of GeneratedMethod → session-allocated data index.
+     * Rolls up generated methods to their parent classes in the registry.
+     * For inner classes (e.g., User$UserBuilder), methods are added to the top-level parent (User).
+     * If no parent exists in Phase 1, the methods are skipped (orphan handling).
+     * Uses pre-allocated indices from Phase2IndexAllocator.
      */
-    /**
-     * Registers generated methods for NEW classes (not in Phase 1) in the registry.
-     * Classes that already exist in Phase 1 are skipped to avoid duplicate entries.
-     * Uses pre-allocated indices from Phase2IndexAllocator (not session-allocated).
-     */
-    private boolean registerNewClassesInRegistry(
-            Clover2Registry registry, List<GeneratedMethod> generatedMethods,
-            Map<String, Set<MethodSignatureKey>> phase1Methods,
-            Map<GeneratedMethod, Integer> indexMap)
-            throws CloverException, ConcurrentInstrumentationException {
+    private boolean rollupGeneratedMethods(
+            Clover2Registry registry,
+            List<GeneratedMethod> generatedMethods,
+            Map<GeneratedMethod, Integer> indexMap) {
 
-        // Group by className
-        Map<String, List<GeneratedMethod>> byClass = new HashMap<>();
-        for (GeneratedMethod method : generatedMethods) {
-            byClass.computeIfAbsent(method.getClassName(), k -> new ArrayList<>()).add(method);
-        }
-
-        // Only register classes NOT in Phase 1
-        boolean hasNewClasses = false;
-        for (String className : byClass.keySet()) {
-            if (!phase1Methods.containsKey(className)) {
-                hasNewClasses = true;
-                break;
-            }
-        }
-
-        if (!hasNewClasses) {
+        if (generatedMethods.isEmpty()) {
             return false;
         }
 
-        InstrumentationSession session = registry.startInstr();
-        long phase2Checksum = System.nanoTime();
+        boolean updated = false;
 
-        for (Map.Entry<String, List<GeneratedMethod>> entry : byClass.entrySet()) {
-            String className = entry.getKey();
-            List<GeneratedMethod> methods = entry.getValue();
+        for (GeneratedMethod genMethod : generatedMethods) {
+            String className = genMethod.getClassName();
 
-            // Skip classes that already exist in Phase 1
-            if (phase1Methods.containsKey(className)) {
+            // Resolve parent class name (strip inner class suffix)
+            String parentClassName = resolveTopLevelParent(className);
+
+            // Find parent class in registry
+            FullClassInfo parentClass = findClass(registry, parentClassName);
+
+            if (parentClass == null) {
+                // Orphan - no parent in Phase 1, skip
+                if (Logger.isDebug()) {
+                    Logger.getInstance().debug("Skipping orphan generated method: " + className + "." + genMethod.getMethodName());
+                }
                 continue;
             }
 
-            String packageName = className.contains("/")
-                    ? className.substring(0, className.lastIndexOf('/')).replace('/', '.')
-                    : "";
-            String simpleClassName = className.contains("/")
-                    ? className.substring(className.lastIndexOf('/') + 1)
-                    : className;
-            String sourceFileName = className.replace('/', File.separatorChar) + "$generated.java";
+            // Get the file info to calculate relative offset
+            FullFileInfo fileInfo = (FullFileInfo) parentClass.getContainingFile();
 
-            session.enterFile(packageName, new File(sourceFileName), 0, 0, 0L, 0L, phase2Checksum++);
-            session.enterClass(simpleClassName, new FixedSourceRegion(0, 0),
-                    new Modifiers(), false, false, false);
-
-            for (GeneratedMethod method : methods) {
-                MethodSignature sig = new MethodSignature(method.getMethodName());
-                ((InstrumentationSessionImpl) session).enterMethod(
-                        new ContextSetImpl(),
-                        new FixedSourceRegion(0, 0),
-                        sig,
-                        false);
-                session.exitMethod(0, 0);
+            if (fileInfo == null) {
+                Logger.getInstance().warn("No file info for parent class: " + parentClassName);
+                continue;
             }
 
-            session.exitClass(0, 0);
-            session.exitFile();
+            // Calculate indices
+            int absoluteIndex = indexMap.get(genMethod);
+            int fileBaseIndex = fileInfo.getDataIndex();
+            int relativeOffset = absoluteIndex - fileBaseIndex;
+
+            // Create method info
+            BasicElementInfo elementInfo = new BasicElementInfo(
+                new FixedSourceRegion(0, 0),
+                relativeOffset,
+                1,
+                LanguageConstruct.Builtin.METHOD);
+
+            MethodSignature sig = new MethodSignature(genMethod.getMethodName());
+            FullMethodInfo fullMethod = new FullMethodInfo(
+                parentClass, sig, new ContextSetImpl(), elementInfo, false, null, false);
+
+            fullMethod.setGenerated(true);
+            parentClass.addMethod(fullMethod);
+
+            // Update file data length to accommodate the gap
+            int newLength = Math.max(fileInfo.getDataLength(), relativeOffset + 1);
+            fileInfo.setDataLength(newLength);
+
+            updated = true;
         }
 
-        session.close();
-        return true;
+        return updated;
+    }
+
+    /**
+     * Resolves the top-level parent class name from an inner class name.
+     * Example: "com/example/User$UserBuilder" -> "com/example/User"
+     */
+    private String resolveTopLevelParent(String className) {
+        int firstDollar = className.indexOf('$');
+        return firstDollar > 0 ? className.substring(0, firstDollar) : className;
+    }
+
+    /**
+     * Finds a class in the registry by its fully qualified name (with / separators).
+     */
+    private FullClassInfo findClass(Clover2Registry registry, String classNameWithSlashes) {
+        String fqName = classNameWithSlashes.replace('/', '.');
+
+        for (PackageInfo pkg : registry.getProject().getAllPackages()) {
+            for (FileInfo file : pkg.getFiles()) {
+                for (ClassInfo clazz : file.getClasses()) {
+                    if (fqName.equals(clazz.getQualifiedName())) {
+                        return (FullClassInfo) clazz;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**
