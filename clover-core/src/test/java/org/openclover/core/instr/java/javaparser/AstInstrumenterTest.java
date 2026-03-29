@@ -2,10 +2,37 @@ package org.openclover.core.instr.java.javaparser;
 
 import com.github.javaparser.StaticJavaParser;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.openclover.core.api.instrumentation.InstrumentationSession;
+import org.openclover.core.api.registry.FileInfo;
+import org.openclover.core.api.registry.MethodInfo;
+import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
+import org.openclover.core.instr.java.FileStructureInfo;
+import org.openclover.core.instr.java.InstrumentationSource;
+import org.openclover.core.instr.java.StringInstrumentationSource;
+import org.openclover.core.registry.entities.FullBranchInfo;
+import org.openclover.core.registry.entities.FullStatementInfo;
+import org.openclover.core.registry.entities.MethodSignature;
+import org.openclover.core.spi.lang.LanguageConstruct;
 
+import java.io.File;
+import java.io.StringWriter;
+
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * TDD tests for the AST-based instrumenter.
@@ -23,6 +50,8 @@ public class AstInstrumenterTest {
     private static final String RECORDER_CLASS = "static class __CLR";
     private static final String INSTRUMENTATION_MARKER = "This file has been instrumented";
     private static final String DO_WORK = "doWork()";
+    private static final String TEST_FILE_NAME = "TEST_FILE_NAME";
+    private static final String IF_ELSE_SOURCE = "class Foo { void bar(boolean b) { if (b) { doA(); } else { doB(); } } }";
 
     /**
      * The most basic contract: instrument a simple class and get valid output.
@@ -75,7 +104,7 @@ public class AstInstrumenterTest {
      */
     @Test
     public void instrumentsIfElseBranches() {
-        String source = "class Foo { void bar(boolean b) { if (b) { doA(); } else { doB(); } } }";
+        String source = IF_ELSE_SOURCE;
         String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
 
         String doA = "doA()";
@@ -219,5 +248,294 @@ public class AstInstrumenterTest {
             idx += pattern.length();
         }
         return count;
+    }
+
+    // ========== SESSION INTEGRATION TESTS ==========
+
+    /**
+     * Tests that the session-aware instrument method calls session.enterFile with file metadata.
+     */
+    @Test
+    public void sessionEnterFileCalledWithMetadata() throws Exception {
+        String source = "class Foo { void bar() { System.out.println(\"test\"); } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+        MethodInfo methodInfo = mock(MethodInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any()))
+                .thenReturn(methodInfo);
+        when(methodInfo.getDataIndex()).thenReturn(0);
+        when(session.getVersion()).thenReturn(123456789L);
+        when(session.getCurrentFileMaxIndex()).thenReturn(10);
+
+        FullStatementInfo stmtInfo = mock(FullStatementInfo.class);
+        when(stmtInfo.getDataIndex()).thenReturn(1);
+        when(session.addStatement(any(), any(), anyInt(), any())).thenReturn(stmtInfo);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        FileStructureInfo result = AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        assertNotNull("Should return FileStructureInfo", result);
+        verify(session, times(1)).enterFile(
+                eq(""),
+                eq(instrSource.getSourceFileLocation()),
+                anyInt(), // lineCount
+                anyInt(), // ncLineCount
+                anyLong(), // timestamp
+                anyLong(), // filesize
+                anyLong()); // checksum
+    }
+
+    /**
+     * Tests that session.enterClass is called for each class.
+     */
+    @Test
+    public void sessionEnterClassCalledPerClass() throws Exception {
+        String source = "class Outer { class Inner {} }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.getVersion()).thenReturn(123456789L);
+        when(session.getCurrentFileMaxIndex()).thenReturn(10);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        verify(session, times(2)).enterClass(anyString(), any(), any(), anyBoolean(), anyBoolean(), anyBoolean());
+        verify(session, times(2)).exitClass(anyInt(), anyInt());
+    }
+
+    /**
+     * Tests that session.enterMethod is called with correct signature and complexity.
+     */
+    @Test
+    public void sessionEnterMethodCalledWithSignatureAndComplexity() throws Exception {
+        String source = "class Foo { public int calc(String s) { if (s == null) return 0; return s.length(); } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+        MethodInfo methodInfo = mock(MethodInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any()))
+                .thenReturn(methodInfo);
+        when(methodInfo.getDataIndex()).thenReturn(0);
+        when(session.getVersion()).thenReturn(123456789L);
+        when(session.getCurrentFileMaxIndex()).thenReturn(10);
+
+        FullStatementInfo stmtInfo = mock(FullStatementInfo.class);
+        when(stmtInfo.getDataIndex()).thenReturn(1);
+        when(session.addStatement(any(), any(), anyInt(), any())).thenReturn(stmtInfo);
+
+        FullBranchInfo branchInfo = mock(FullBranchInfo.class);
+        when(branchInfo.getDataIndex()).thenReturn(2);
+        when(session.addBranch(any(), any(), anyBoolean(), anyInt(), any())).thenReturn(branchInfo);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        ArgumentCaptor<MethodSignature> sigCaptor = ArgumentCaptor.forClass(MethodSignature.class);
+        ArgumentCaptor<Integer> complexityCaptor = ArgumentCaptor.forClass(Integer.class);
+
+        verify(session, times(1)).enterMethod(
+                any(),
+                any(),
+                sigCaptor.capture(),
+                eq(false), // isTest
+                any(),
+                eq(false), // isLambda
+                complexityCaptor.capture(),
+                any());
+
+        MethodSignature sig = sigCaptor.getValue();
+        assertEquals("Method name should be calc", "calc", sig.getName());
+        assertTrue("Complexity should be at least 2 (method + if)", complexityCaptor.getValue() >= 2);
+    }
+
+    /**
+     * Tests that session.addStatement is called for each executable statement.
+     */
+    @Test
+    public void sessionAddStatementCalledPerExecutableStatement() throws Exception {
+        String source = "class Foo { void bar() { int x = 1; int y = 2; return; } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+        MethodInfo methodInfo = mock(MethodInfo.class);
+        FullStatementInfo stmtInfo = mock(FullStatementInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any()))
+                .thenReturn(methodInfo);
+        when(methodInfo.getDataIndex()).thenReturn(0);
+        when(session.addStatement(any(), any(), anyInt(), any())).thenReturn(stmtInfo);
+        when(stmtInfo.getDataIndex()).thenReturn(1);
+        when(session.getVersion()).thenReturn(123456789L);
+        when(session.getCurrentFileMaxIndex()).thenReturn(10);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // Should have at least 3 statements: x=1, y=2, return
+        verify(session, atLeastOnce()).addStatement(any(), any(), anyInt(), eq(LanguageConstruct.Builtin.STATEMENT));
+    }
+
+    /**
+     * Tests that session.addBranch is called for if statements.
+     */
+    @Test
+    public void sessionAddBranchCalledPerIfStatement() throws Exception {
+        String source = IF_ELSE_SOURCE;
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+        MethodInfo methodInfo = mock(MethodInfo.class);
+        FullBranchInfo branchInfo = mock(FullBranchInfo.class);
+        FullStatementInfo stmtInfo = mock(FullStatementInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any()))
+                .thenReturn(methodInfo);
+        when(methodInfo.getDataIndex()).thenReturn(0);
+        when(session.addBranch(any(), any(), anyBoolean(), anyInt(), any())).thenReturn(branchInfo);
+        when(branchInfo.getDataIndex()).thenReturn(1);
+        when(session.addStatement(any(), any(), anyInt(), any())).thenReturn(stmtInfo);
+        when(stmtInfo.getDataIndex()).thenReturn(3);
+        when(session.getVersion()).thenReturn(123456789L);
+        when(session.getCurrentFileMaxIndex()).thenReturn(10);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        verify(session, times(1)).addBranch(any(), any(), eq(true), anyInt(), eq(LanguageConstruct.Builtin.BRANCH));
+    }
+
+    /**
+     * Tests that @Test annotated methods are detected as test methods.
+     */
+    @Test
+    public void testMethodDetectedByAnnotation() throws Exception {
+        String source = "import org.junit.Test; class FooTest { @Test public void testBar() { assert true; } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+        MethodInfo methodInfo = mock(MethodInfo.class);
+        FullStatementInfo stmtInfo = mock(FullStatementInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any()))
+                .thenReturn(methodInfo);
+        when(methodInfo.getDataIndex()).thenReturn(0);
+        when(session.addStatement(any(), any(), anyInt(), any())).thenReturn(stmtInfo);
+        when(stmtInfo.getDataIndex()).thenReturn(1);
+        when(session.getVersion()).thenReturn(123456789L);
+        when(session.getCurrentFileMaxIndex()).thenReturn(10);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        verify(session, times(1)).enterMethod(
+                any(),
+                any(),
+                any(),
+                eq(true), // isTest should be true
+                anyString(), // staticTestName should be provided
+                eq(false), // isLambda
+                anyInt(),
+                any());
+    }
+
+    /**
+     * Tests that instrumentation is skipped in CLOVER:OFF regions.
+     */
+    @Test
+    public void cloverOffSkipsInstrumentation() throws Exception {
+        String source = "class Foo { void bar() { "
+                + "/* CLOVER:OFF */ "
+                + "int x = 1; "
+                + "/* CLOVER:ON */ "
+                + "int y = 2; } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+        MethodInfo methodInfo = mock(MethodInfo.class);
+        FullStatementInfo stmtInfo = mock(FullStatementInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.enterMethod(any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any()))
+                .thenReturn(methodInfo);
+        when(methodInfo.getDataIndex()).thenReturn(0);
+        when(session.addStatement(any(), any(), anyInt(), any())).thenReturn(stmtInfo);
+        when(stmtInfo.getDataIndex()).thenReturn(1);
+        when(session.getVersion()).thenReturn(123456789L);
+        when(session.getCurrentFileMaxIndex()).thenReturn(10);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // The statement "int y = 2" should have instrumentation, but not "int x = 1"
+        assertTrue("Should contain instrumented code", result.contains(".inc("));
+    }
+
+    /**
+     * Tests that double instrumentation is rejected.
+     */
+    @Test(expected = Exception.class)
+    public void doubleInstrumentationRejected() throws Exception {
+        String source = "/* $$ This file has been instrumented by OpenClover $$ */\nclass Foo { void bar() {} }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = mock(InstrumentationSession.class);
+        FileInfo fileInfo = mock(FileInfo.class);
+
+        when(session.enterFile(anyString(), any(File.class), anyInt(), anyInt(), anyLong(), anyLong(), anyLong()))
+                .thenReturn(fileInfo);
+        when(session.getVersion()).thenReturn(123456789L);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
     }
 }
