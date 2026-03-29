@@ -440,7 +440,7 @@ function showTestsForLine(ele, startLine, overTitle) {
             return false;
         },
         {
-            width: 700,
+            width: 1000,
             cacheContent: false,
             hideDelay: 60000,
             hideCallback: function() {
@@ -509,7 +509,7 @@ function createTableForPopup(startLine) {
 
     // create scroll view (scroll bars visible when needed) with an aui table
     var scrollViewDiv = $(document.createElement('div'));
-    scrollViewDiv.attr('style', 'overflow-x: hidden; overflow-y: auto; max-height:500px; width:100%; padding-right: 20px; border-top: 1px solid #cccccc; border-bottom: 1px solid #cccccc');
+    scrollViewDiv.attr('style', 'overflow-x: auto; overflow-y: auto; max-height:500px; width:100%; padding-right: 20px; border-top: 1px solid #cccccc; border-bottom: 1px solid #cccccc');
     var table = $(document.createElement('table'));
     table.addClass('aui'); // TODO aui-table-sortable
     var thead = $(document.createElement('thead'));
