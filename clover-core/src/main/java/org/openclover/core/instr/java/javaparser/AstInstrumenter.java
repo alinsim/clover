@@ -171,7 +171,11 @@ public class AstInstrumenter {
      * Creates a minimal stub session for testing.
      */
     public static String instrument(String source, String recorderPrefix, String initString) {
-        CompilationUnit cu = StaticJavaParser.parse(source);
+        ParserConfiguration config = new ParserConfiguration()
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
+        JavaParser parser = new JavaParser(config);
+        CompilationUnit cu = parser.parse(source).getResult()
+                .orElseThrow(() -> new IllegalArgumentException("Failed to parse source"));
         LexicalPreservingPrinter.setup(cu);
 
         AtomicInteger indexCounter = new AtomicInteger(0);
@@ -980,7 +984,9 @@ public class AstInstrumenter {
                 // Instrument statements and branches inside the body
                 instrumentBlock(body);
             });
-            // Don't call super.visit — we handle children manually in instrumentBlock
+            // Don't call super.visit — instrumentBlock handles statement-level children.
+            // Switch expression arrow-cases inside return/expression statements are
+            // handled by the session-aware visitor in production.
         }
 
         @Override
@@ -1002,6 +1008,36 @@ public class AstInstrumenter {
         @Override
         public void visit(InitializerDeclaration initDecl, Void arg) {
             instrumentBlock(initDecl.getBody());
+        }
+
+        @Override
+        public void visit(SwitchEntry entry, Void arg) {
+            List<Statement> stmts = entry.getStatements();
+            if (stmts.isEmpty()) {
+                super.visit(entry, arg);
+                return;
+            }
+
+            if (entry.getType() == SwitchEntry.Type.BLOCK) {
+                // Arrow-case with block: case X -> { ... }
+                if (stmts.get(0) instanceof BlockStmt) {
+                    BlockStmt block = (BlockStmt) stmts.get(0);
+                    int idx = indexCounter.getAndIncrement();
+                    block.getStatements().addFirst(parseInc(idx));
+                    instrumentBlock(block);
+                }
+            } else if (entry.getType() == SwitchEntry.Type.STATEMENT_GROUP) {
+                // Colon-case: case X: stmt; — instrument first statement
+                if (isExecutableStatement(stmts.get(0))) {
+                    int idx = indexCounter.getAndIncrement();
+                    stmts.add(0, parseInc(idx));
+                }
+            }
+            // Arrow expression/throw cases: these need text-level rewriting that
+            // LPP doesn't support well (yield is context-sensitive). Handled by
+            // the session-aware visitor in production. For standalone tests, the
+            // switch entries are left as-is — the method body still gets R.inc.
+            super.visit(entry, arg);
         }
 
         private void instrumentBlock(BlockStmt block) {

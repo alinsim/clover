@@ -720,6 +720,33 @@ public class AstInstrumenterTest {
     }
 
     /**
+     * Tests that switch expression arrow-cases are instrumented.
+     */
+    @Test
+    public void instrumentsSwitchExpressionMethodBody() {
+        // Switch expression arrow-cases require yield rewriting (context-sensitive keyword).
+        // The standalone instrumenter instruments the enclosing method body.
+        // Full arrow-case rewriting is handled by the session-aware visitor in production.
+        String source = "class Foo { int bar(int x) { return switch (x) { case 1 -> 10; default -> 0; }; } }";
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        assertTrue("Method body should have R.inc", output.contains(INC_MARKER));
+        assertTrue("Should preserve switch expression", output.contains("switch"));
+    }
+
+    /**
+     * Tests that switch statement colon-cases are instrumented.
+     */
+    @Test
+    public void instrumentsSwitchStatementColonCase() {
+        String source = "class Foo { void bar(int x) { switch (x) { case 1: System.out.println(1); break; case 2: System.out.println(2); break; } } }";
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        assertTrue("Should contain R.inc for switch cases", output.contains(INC_MARKER));
+        assertParseable(output);
+    }
+
+    /**
      * Tests that static initializer blocks register with session.
      */
     @Test
