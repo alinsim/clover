@@ -67,6 +67,7 @@ import java.io.IOException;
 import java.io.Writer;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -343,6 +344,7 @@ public class AstInstrumenter {
         private final long registryVersion;
         private final ContextStore contextStore;
         private final List<DisabledRange> disabledRanges;
+        private final HashSet<String> instrumentedLambdas = new HashSet<>();
 
         SessionAwareAstVisitor(InstrumentationSession session, JavaInstrumentationConfig config,
                               String recorderPrefix, String initString, long registryVersion,
@@ -595,11 +597,18 @@ public class AstInstrumenter {
 
         @Override
         public void visit(LambdaExpr lambda, Void arg) {
+            // Track by position to prevent double-wrapping (VoidVisitorAdapter may
+            // visit the cloned lambda inside the lambdaInc wrapper)
+            String key = lambda.getBegin().map(p -> p.line + ":" + p.column).orElse("");
+            if (instrumentedLambdas.contains(key) || isInsideLambdaIncWrapper(lambda)) {
+                return;
+            }
             Position begin = lambda.getBegin().orElse(null);
             if (begin == null || !isInstrumentationEnabled(begin.line)) {
                 super.visit(lambda, arg);
                 return;
             }
+            instrumentedLambdas.add(key);
 
             // Register lambda as a method with the session
             FixedSourceRegion region = new FixedSourceRegion(begin.line, begin.column);
@@ -610,12 +619,12 @@ public class AstInstrumenter {
                     LanguageConstruct.Builtin.METHOD);
 
             if (lambda.getBody().isBlockStmt()) {
-                // Block lambda: inject R.inc at start of body
+                // Block lambda: instrument FIRST, then add R.inc (avoid re-instrumentation)
                 BlockStmt body = lambda.getBody().asBlockStmt();
+                instrumentBlock(body);
                 int lambdaIndex = lambdaInfo.getDataIndex();
                 body.getStatements().addFirst(
                         StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + lambdaIndex + INC_SUFFIX));
-                instrumentBlock(body);
             } else if (isSafeForLambdaIncWrapping(lambda)) {
                 // Expression lambda in safe context: wrap with lambdaInc()
                 FixedSourceRegion stmtRegion = new FixedSourceRegion(begin.line, begin.column);
@@ -809,6 +818,11 @@ public class AstInstrumenter {
          */
         private void instrumentNestedLambdas(Node node) {
             for (LambdaExpr lambda : node.findAll(LambdaExpr.class)) {
+                // Skip if already inside a lambdaInc wrapper (prevents double-wrapping)
+                if (isInsideLambdaIncWrapper(lambda)) {
+                    continue;
+                }
+                // Skip if block body already has R.inc (already instrumented)
                 if (lambda.getBody().isBlockStmt()) {
                     BlockStmt body = lambda.getBody().asBlockStmt();
                     if (!body.getStatements().isEmpty()
@@ -820,8 +834,18 @@ public class AstInstrumenter {
             }
             for (MethodReferenceExpr methodRef :
                     node.findAll(MethodReferenceExpr.class)) {
-                instrumentMethodReference(methodRef);
+                if (!isInsideLambdaIncWrapper(methodRef)) {
+                    instrumentMethodReference(methodRef);
+                }
             }
+        }
+
+        private boolean isInsideLambdaIncWrapper(Node node) {
+            return node.getParentNode()
+                    .filter(p -> p instanceof MethodCallExpr)
+                    .map(p -> ((MethodCallExpr) p).getNameAsString())
+                    .filter(LAMBDA_INC_METHOD::equals)
+                    .isPresent();
         }
 
         /**
@@ -886,16 +910,16 @@ public class AstInstrumenter {
             int trueIndex = branchInfo.getDataIndex();
             int falseIndex = trueIndex + 1;
 
-            // True branch
+            // True branch — instrument FIRST, then add R.inc (avoid re-instrumentation)
             Statement thenStmt = ifStmt.getThenStmt();
             if (thenStmt instanceof BlockStmt) {
                 BlockStmt thenBlock = (BlockStmt) thenStmt;
-                thenBlock.getStatements().addFirst(
-                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +trueIndex + INC_SUFFIX));
                 instrumentBlock(thenBlock);
+                thenBlock.getStatements().addFirst(
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + trueIndex + INC_SUFFIX));
             } else {
                 BlockStmt wrapper = new BlockStmt();
-                wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +trueIndex + INC_SUFFIX));
+                wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + trueIndex + INC_SUFFIX));
                 wrapper.addStatement(thenStmt.clone());
                 ifStmt.setThenStmt(wrapper);
             }
@@ -905,9 +929,9 @@ public class AstInstrumenter {
                 Statement elseStmt = ifStmt.getElseStmt().get();
                 if (elseStmt instanceof BlockStmt) {
                     BlockStmt elseBlock = (BlockStmt) elseStmt;
-                    elseBlock.getStatements().addFirst(
-                            StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +falseIndex + INC_SUFFIX));
                     instrumentBlock(elseBlock);
+                    elseBlock.getStatements().addFirst(
+                            StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + falseIndex + INC_SUFFIX));
                 } else if (elseStmt instanceof IfStmt) {
                     BlockStmt wrapper = new BlockStmt();
                     wrapper.addStatement(StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +falseIndex + INC_SUFFIX));
@@ -946,9 +970,9 @@ public class AstInstrumenter {
             int branchIndex = branchInfo.getDataIndex();
             if (body instanceof BlockStmt) {
                 BlockStmt block = (BlockStmt) body;
-                block.getStatements().addFirst(
-                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX +branchIndex + INC_SUFFIX));
                 instrumentBlock(block);
+                block.getStatements().addFirst(
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + branchIndex + INC_SUFFIX));
             }
         }
 

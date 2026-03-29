@@ -865,4 +865,71 @@ public class AstInstrumenterTest {
         assertTrue("Should have at least 3 R.inc calls (method + 2 case stmts)", incCount >= 3);
         assertParseable(output);
     }
+
+    // ========== RE-INSTRUMENTATION BUG TESTS ==========
+
+    /**
+     * Tests that branch R.inc inside if-then block is NOT re-instrumented as a statement.
+     * Bug: instrumentIf adds R.inc(trueIndex) THEN calls instrumentBlock which tries to
+     * instrument the R.inc call itself.
+     */
+    @Test
+    public void branchIncNotReInstrumentedInIfBlock() throws Exception {
+        String source = "class Foo { void bar(boolean b) { if (b) { doWork(); } } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // addStatement should be called exactly once for doWork(), NOT for the branch R.inc
+        verify(session, times(1)).addStatement(any(), any(), anyInt(), any());
+    }
+
+    /**
+     * Tests that loop body R.inc is NOT re-instrumented.
+     */
+    @Test
+    public void loopBodyIncNotReInstrumented() throws Exception {
+        String source = "class Foo { void bar() { while (true) { doWork(); } } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // addStatement called once for doWork(), NOT for the loop branch R.inc
+        verify(session, times(1)).addStatement(any(), any(), anyInt(), any());
+    }
+
+    // ========== LAMBDA DOUBLE-WRAPPING TEST ==========
+
+    /**
+     * Tests that a lambda wrapped with lambdaInc is NOT double-wrapped by
+     * instrumentNestedLambdas finding the clone inside the wrapper.
+     */
+    @Test
+    public void lambdaNotDoubleWrapped() throws Exception {
+        String source = "class Foo { java.util.function.Supplier<String> s = () -> \"hello\"; }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Count lambdaInc INVOCATIONS (not the method definition in the recorder class)
+        // Invocations look like: .lambdaInc(  — the method definition looks like: lambdaInc(final
+        int lambdaIncCallCount = countOccurrences(result, ".lambdaInc(");
+        assertEquals("Lambda should be wrapped exactly once", 1, lambdaIncCallCount);
+    }
 }
