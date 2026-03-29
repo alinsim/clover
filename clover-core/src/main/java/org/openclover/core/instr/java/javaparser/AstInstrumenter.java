@@ -35,6 +35,8 @@ import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
 import org.openclover.core.cfg.instr.java.SourceLevel;
 import org.openclover.core.context.ContextSetImpl;
 import org.openclover.core.context.ContextStore;
+import org.openclover.core.context.MethodRegexpContext;
+import org.openclover.core.context.StatementRegexpContext;
 import org.openclover.core.instr.java.FileStructureInfo;
 import org.openclover.core.instr.java.InstrumentationSource;
 import org.openclover.core.registry.FixedSourceRegion;
@@ -746,6 +748,32 @@ public class AstInstrumenter {
             if (ctor.isProtected()) modMask |= Modifier.PROTECTED;
             Modifiers mods = Modifiers.createFrom(modMask, null);
             return new MethodSignature(name, null, null, null, null, mods);
+        }
+
+        // ========== CONTEXT MATCHING ==========
+
+        private ContextSetImpl matchMethodContexts(MethodDeclaration method) {
+            ContextSetImpl ctx = new ContextSetImpl();
+            if (contextStore == null) return ctx;
+            String normalizedSig = method.getDeclarationAsString(true, true, true);
+            for (MethodRegexpContext mctx : contextStore.getMethodContexts()) {
+                if (mctx.matches(normalizedSig)) {
+                    ctx.set(mctx.getIndex());
+                }
+            }
+            return ctx;
+        }
+
+        private ContextSetImpl matchStatementContexts(Statement stmt) {
+            ContextSetImpl ctx = new ContextSetImpl();
+            if (contextStore == null) return ctx;
+            String normalizedStmt = stmt.toString().replaceAll("\\s+", " ").trim();
+            for (StatementRegexpContext sctx : contextStore.getStatementContexts()) {
+                if (sctx.matches(normalizedStmt)) {
+                    ctx.set(sctx.getIndex());
+                }
+            }
+            return ctx;
         }
 
         private boolean isExecutableStatement(Statement stmt) {
