@@ -65,7 +65,20 @@ public class BytecodeInstrumenter {
         String recorderOwner = findRecorderOwner(reader);
 
         // Second pass: transform
-        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        // COMPUTE_FRAMES requires class hierarchy resolution via getCommonSuperClass().
+        // The default implementation uses Class.forName() which fails when target classes
+        // (Vert.x, SLF4J, etc.) aren't on the plugin's classloader. Override to fall back
+        // to java/lang/Object — conservative but always valid for the JVM verifier.
+        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_FRAMES) {
+            @Override
+            protected String getCommonSuperClass(String type1, String type2) {
+                try {
+                    return super.getCommonSuperClass(type1, type2);
+                } catch (RuntimeException e) {
+                    return "java/lang/Object";
+                }
+            }
+        };
 
         String[] classNameHolder = new String[1];
         boolean[] hasClinitHolder = new boolean[1];

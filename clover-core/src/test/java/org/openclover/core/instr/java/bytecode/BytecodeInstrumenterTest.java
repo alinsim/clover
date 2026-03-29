@@ -5,6 +5,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -46,6 +47,11 @@ public class BytecodeInstrumenterTest {
     private static final String LDC_100 = "LDC 100";
     private static final String LDC_200 = "LDC 200";
     private static final String LDC_300 = "LDC 300";
+    private static final String METHOD_NAME_PROCESS = "process";
+    private static final String METHOD_DESC_OBJECT_VOID = "(Ljava/lang/Object;)V";
+    private static final String JAVA_UTIL_ARRAYLIST = "java/util/ArrayList";
+    private static final String JAVA_UTIL_HASHMAP = "java/util/HashMap";
+    private static final String INIT = "<init>";
 
     @Test
     public void instrumentInjectsIncCallForSameClassWithRecorder() {
@@ -315,6 +321,81 @@ public class BytecodeInstrumenterTest {
 
         // For this test, we only return the outer class bytes
         // (In real scenario, both would be loaded, but we're testing the instrumenter's logic)
+        return cw.toByteArray();
+    }
+
+    @Test
+    public void instrumentHandlesClassReferencingUnknownTypes() {
+        // Generate a class with a method that has branching logic referencing a type
+        // NOT on the current classloader (simulates Vert.x/SLF4J in a real project).
+        // This forces ASM's COMPUTE_FRAMES to call getCommonSuperClass(), which must
+        // fall back gracefully instead of throwing ClassNotFoundException.
+        byte[] classBytes = generateClassWithUnknownTypeReference();
+
+        Map<String, Integer> methodIndices = new HashMap<>();
+        methodIndices.put(METHOD_NAME_PROCESS + METHOD_DESC_OBJECT_VOID, 42);
+
+        BytecodeInstrumenter.RecorderConfig config = new BytecodeInstrumenter.RecorderConfig(
+            TEST_DB_PATH, 1234L, 5678L, 100
+        );
+        BytecodeInstrumenter instrumenter = new BytecodeInstrumenter(config);
+
+        // Act — this would throw if getCommonSuperClass fails
+        byte[] result = instrumenter.instrument(classBytes, methodIndices);
+
+        // Assert — instrumentation succeeded despite unknown type references
+        assertNotNull("Should instrument even with unknown type references", result);
+
+        List<String> instructions = getMethodInstructions(result, METHOD_NAME_PROCESS, METHOD_DESC_OBJECT_VOID);
+        assertTrue(MSG_SHOULD_HAVE_INC,
+            instructions.stream().anyMatch(s -> s.contains(OPCODE_INVOKEVIRTUAL) && s.contains(METHOD_NAME_INC)));
+    }
+
+    /**
+     * Generates a class with a method that references a type not on the current classloader
+     * and has branching that forces frame merging (if-else with different types on stack).
+     */
+    private byte[] generateClassWithUnknownTypeReference() {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, TEST_CLASS_NAME, null, JAVA_LANG_OBJECT, null);
+
+        // Method: void process(Object input)
+        // Contains if-else that merges two different types — forces getCommonSuperClass
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, METHOD_NAME_PROCESS,
+                METHOD_DESC_OBJECT_VOID, null, null);
+        mv.visitCode();
+
+        // if (input != null) { result = new ArrayList(); } else { result = new HashMap(); }
+        // This creates a merge point where ASM needs common superclass of ArrayList and HashMap
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        Label elseLabel = new Label();
+        Label endLabel = new Label();
+        mv.visitJumpInsn(Opcodes.IFNULL, elseLabel);
+
+        // if branch: new ArrayList
+        mv.visitTypeInsn(Opcodes.NEW, JAVA_UTIL_ARRAYLIST);
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, JAVA_UTIL_ARRAYLIST, INIT, METHOD_DESC_VOID, false);
+        mv.visitVarInsn(Opcodes.ASTORE, 2);
+        mv.visitJumpInsn(Opcodes.GOTO, endLabel);
+
+        // else branch: new HashMap
+        mv.visitLabel(elseLabel);
+        mv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+        mv.visitTypeInsn(Opcodes.NEW, JAVA_UTIL_HASHMAP);
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, JAVA_UTIL_HASHMAP, INIT, METHOD_DESC_VOID, false);
+        mv.visitVarInsn(Opcodes.ASTORE, 2);
+
+        // merge point — local var 2 is either ArrayList or HashMap
+        mv.visitLabel(endLabel);
+        mv.visitFrame(Opcodes.F_APPEND, 1, new Object[]{JAVA_LANG_OBJECT}, 0, null);
+        mv.visitInsn(Opcodes.RETURN);
+
+        mv.visitMaxs(2, 3);
+        mv.visitEnd();
+
+        cw.visitEnd();
         return cw.toByteArray();
     }
 
