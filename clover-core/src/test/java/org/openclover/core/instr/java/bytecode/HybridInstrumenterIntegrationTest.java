@@ -336,9 +336,23 @@ public class HybridInstrumenterIntegrationTest {
             }
         }
 
-        assertTrue("getName should be registered in registry", foundGetName);
-        assertTrue("setName should be registered in registry", foundSetName);
-        assertEquals("Registry should have 3 methods (1 Phase 1 + 2 Phase 2)", 3, totalMethods);
+        // Same-class generated methods are NOT registered (would create duplicate class entry).
+        // They still get coverage via R.inc() but don't appear as individual report entries.
+        // Only Phase 1's getDisplayName should be in the registry.
+        assertEquals("Registry should have 1 method (Phase 1 only, no same-class duplicates)", 1, totalMethods);
+
+        // Verify NO duplicate class names
+        int userClassCount = 0;
+        for (PackageInfo pkg : reloaded.getProject().getAllPackages()) {
+            for (FileInfo file : pkg.getFiles()) {
+                for (ClassInfo clazz : file.getClasses()) {
+                    if (CLASS_NAME.equals(clazz.getName())) {
+                        userClassCount++;
+                    }
+                }
+            }
+        }
+        assertEquals("Class should appear only once (no duplicate from Phase 2)", 1, userClassCount);
     }
 
     // Helper methods

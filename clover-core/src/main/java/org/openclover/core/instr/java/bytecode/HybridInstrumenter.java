@@ -113,20 +113,25 @@ public class HybridInstrumenter {
         Logger.getInstance().info("Hybrid instrumentation: found " + generatedMethods.size()
                 + " generated methods in " + classDir);
 
-        // 4. Register generated methods in registry via Phase 2 session
-        //    This makes them visible in reports. Session allocates contiguous indices
-        //    starting from Phase 1's maxDataIndex.
-        Map<GeneratedMethod, Integer> indexMap;
-        int totalMaxIndex;
+        // 4. Allocate indices for ALL generated methods
+        int phase1DataLength = registry.getProject().getDataLength();
+        Phase2IndexAllocator allocator = new Phase2IndexAllocator(phase1DataLength);
+        Map<GeneratedMethod, Integer> indexMap = allocator.allocateIndices(generatedMethods);
+        int totalMaxIndex = allocator.getTotalMaxIndex();
+
+        // 5. Register only NEW classes (not in Phase 1) in registry for report visibility.
+        //    Classes that already exist in Phase 1 are skipped to avoid duplicate entries.
+        //    Their generated methods still get coverage via R.inc() with allocated indices.
         try {
-            indexMap = registerInRegistry(registry, generatedMethods);
-            totalMaxIndex = registry.getProject().getDataLength();
-            registry.saveAndAppendToFile();
+            boolean registered = registerNewClassesInRegistry(registry, generatedMethods, phase1Methods, indexMap);
+            if (registered) {
+                registry.saveAndAppendToFile();
+            }
         } catch (ConcurrentInstrumentationException e) {
             throw new CloverException("Phase 2 registry update failed", e);
         }
 
-        // 5. Create instrumenter with recorder config
+        // 6. Create instrumenter with recorder config
         BytecodeInstrumenter.RecorderConfig recorderConfig = new BytecodeInstrumenter.RecorderConfig(
                 registryFile.getAbsolutePath(),
                 dbVersion,
@@ -197,35 +202,54 @@ public class HybridInstrumenter {
      * Uses a unique checksum to avoid reusing Phase 1's data indices.
      * Returns a map of GeneratedMethod → session-allocated data index.
      */
-    private Map<GeneratedMethod, Integer> registerInRegistry(
-            Clover2Registry registry, List<GeneratedMethod> generatedMethods)
+    /**
+     * Registers generated methods for NEW classes (not in Phase 1) in the registry.
+     * Classes that already exist in Phase 1 are skipped to avoid duplicate entries.
+     * Uses pre-allocated indices from Phase2IndexAllocator (not session-allocated).
+     */
+    private boolean registerNewClassesInRegistry(
+            Clover2Registry registry, List<GeneratedMethod> generatedMethods,
+            Map<String, Set<MethodSignatureKey>> phase1Methods,
+            Map<GeneratedMethod, Integer> indexMap)
             throws CloverException, ConcurrentInstrumentationException {
 
-        InstrumentationSession session = registry.startInstr();
-        Map<GeneratedMethod, Integer> indexMap = new HashMap<>();
-
-        // Group by className for proper enter/exit nesting
+        // Group by className
         Map<String, List<GeneratedMethod>> byClass = new HashMap<>();
         for (GeneratedMethod method : generatedMethods) {
             byClass.computeIfAbsent(method.getClassName(), k -> new ArrayList<>()).add(method);
         }
 
-        long phase2Checksum = System.nanoTime(); // unique, won't match Phase 1
+        // Only register classes NOT in Phase 1
+        boolean hasNewClasses = false;
+        for (String className : byClass.keySet()) {
+            if (!phase1Methods.containsKey(className)) {
+                hasNewClasses = true;
+                break;
+            }
+        }
+
+        if (!hasNewClasses) {
+            return false;
+        }
+
+        InstrumentationSession session = registry.startInstr();
+        long phase2Checksum = System.nanoTime();
 
         for (Map.Entry<String, List<GeneratedMethod>> entry : byClass.entrySet()) {
             String className = entry.getKey();
             List<GeneratedMethod> methods = entry.getValue();
 
-            // Derive package and simple class name from internal name (com/example/User)
+            // Skip classes that already exist in Phase 1
+            if (phase1Methods.containsKey(className)) {
+                continue;
+            }
+
             String packageName = className.contains("/")
                     ? className.substring(0, className.lastIndexOf('/')).replace('/', '.')
                     : "";
             String simpleClassName = className.contains("/")
                     ? className.substring(className.lastIndexOf('/') + 1)
                     : className;
-            // For inner classes (User$Builder), use the full nested name
-            // Use a distinct file path so Phase 2's FileInfo doesn't replace Phase 1's.
-            // The "$generated" suffix ensures no collision with real source files.
             String sourceFileName = className.replace('/', File.separatorChar) + "$generated.java";
 
             session.enterFile(packageName, new File(sourceFileName), 0, 0, 0L, 0L, phase2Checksum++);
@@ -234,12 +258,11 @@ public class HybridInstrumenter {
 
             for (GeneratedMethod method : methods) {
                 MethodSignature sig = new MethodSignature(method.getMethodName());
-                MethodInfo mi = ((InstrumentationSessionImpl) session).enterMethod(
+                ((InstrumentationSessionImpl) session).enterMethod(
                         new ContextSetImpl(),
                         new FixedSourceRegion(0, 0),
                         sig,
                         false);
-                indexMap.put(method, mi.getDataIndex());
                 session.exitMethod(0, 0);
             }
 
@@ -248,7 +271,7 @@ public class HybridInstrumenter {
         }
 
         session.close();
-        return indexMap;
+        return true;
     }
 
     /**
