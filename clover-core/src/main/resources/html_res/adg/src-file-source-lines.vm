@@ -34,9 +34,9 @@
         <table id="$hiddenEleId" style="display:none;" class="inlineStats" width="100%" cellspacing="1px" cellpadding="1px">
             <tr onclick="toggleInlineStats(document.getElementById('$toggleId'), '$hiddenEleId');return true;">
                 <td>#parse("html_res/adg/bar-graph-div.vm")</td><td>$renderUtil.getPercentStr($pccovered)</td>
-                <td class="inlineStat">Uncovered Elements: $renderUtil.formatInt($metrics.NumUncoveredElements) ($renderUtil.formatInt($metrics.NumElements))</td>
-                <td class="inlineStat">Complexity: $renderUtil.formatInt($metrics.complexity)</td>
-                <td class="inlineStat">Complexity Density: $renderUtil.format2d($metrics.complexityDensity)</td>
+                <td class="inlineStat"><span title="Number of statements and branches not executed during testing" class="metricLabel">Uncovered Elements:</span> <a href="#$start.startLine" class="elementCountLink" title="$renderUtil.formatInt($metrics.NumUncoveredElements) uncovered out of $renderUtil.formatInt($metrics.NumElements) total statements and branches in this method">$renderUtil.formatInt($metrics.NumUncoveredElements) ($renderUtil.formatInt($metrics.NumElements))</a></td>
+                <td class="inlineStat"><span title="McCabe cyclomatic complexity — number of independent execution paths through the code. Higher values indicate more complex, harder-to-test code" class="metricLabel">Complexity:</span> $renderUtil.formatInt($metrics.complexity)</td>
+                <td class="inlineStat"><span title="Complexity per statement — ratio of cyclomatic complexity to number of statements. Values above 1.0 suggest dense branching logic" class="metricLabel">Complexity Density:</span> $renderUtil.format2d($metrics.complexityDensity)</td>
                 #if($start.test)
                     #set ($class = $start.containingClass)
                     <td class="inlineStat">#set($testCase = $class.getTestCase($start.qualifiedName))#parse("html_res/adg/test-result-status-long.vm")</td>

@@ -815,6 +815,22 @@ td.cloud-report-min-label {
     transform: translatex(-0.5em);
 }
 
+.metricLabel {
+    cursor: help;
+    border-bottom: 1px dotted #999;
+}
+
+.elementCountLink {
+    color: #205081;
+    text-decoration: none;
+    cursor: pointer;
+    border-bottom: 1px dotted #205081;
+}
+
+.elementCountLink:hover {
+    text-decoration: underline;
+}
+
 .generatedBadge {
     display: inline-block;
     margin-left: 4px;
