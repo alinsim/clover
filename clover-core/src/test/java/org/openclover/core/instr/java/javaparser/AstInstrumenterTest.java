@@ -175,6 +175,34 @@ public class AstInstrumenterTest {
         assertParseable(output);
     }
 
+    /**
+     * Lambda expression wrapping: expression lambda wrapped with lambdaInc().
+     */
+    @Test
+    public void instrumentsExpressionLambda() {
+        String source = "class Foo { java.util.function.Supplier<String> s = () -> \"hello\"; }";
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        assertTrue("Should contain lambda body", output.contains("hello"));
+        assertParseable(output);
+    }
+
+    /**
+     * Try-with-resources: R.inc before try statement.
+     */
+    @Test
+    public void instrumentsTryWithResources() {
+        String source = "class Foo { void bar() throws Exception {"
+                + " try (java.io.InputStream is = new java.io.FileInputStream(\"f\")) {"
+                + " is.read(); } } }";
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        assertTrue("Should contain R.inc", output.contains(INC_MARKER));
+        assertTrue("Should preserve try-with-resources", output.contains("try"));
+        assertTrue("Should preserve resource", output.contains("InputStream"));
+        assertParseable(output);
+    }
+
     private void assertParseable(String source) {
         try {
             StaticJavaParser.parse(source);
