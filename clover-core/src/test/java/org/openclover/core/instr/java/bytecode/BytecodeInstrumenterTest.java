@@ -55,6 +55,8 @@ public class BytecodeInstrumenterTest {
     private static final String INIT = "<init>";
     private static final String METHOD_NAME_TEST_SOMETHING = "testSomething";
     private static final String JUNIT5_TEST_ANNOTATION = "Lorg/junit/jupiter/api/Test;";
+    private static final String INTERFACE_CLASS_NAME = "com/example/YpHeader";
+    private static final String METHOD_DESC_STRING_RETURN = "()Ljava/lang/String;";
 
     @Test
     public void instrumentInjectsIncCallForSameClassWithRecorder() {
@@ -352,6 +354,40 @@ public class BytecodeInstrumenterTest {
         List<String> instructions = getMethodInstructions(result, METHOD_NAME_PROCESS, METHOD_DESC_OBJECT_VOID);
         assertTrue(MSG_SHOULD_HAVE_INC,
             instructions.stream().anyMatch(s -> s.contains(OPCODE_INVOKEVIRTUAL) && s.contains(METHOD_NAME_INC)));
+    }
+
+    @Test
+    public void instrumentSkipsInterfacesWithoutCorruptingClassFormat() {
+        // Reproduce: ClassFormatError: Illegal field modifiers in class cxd/edd/common/YpHeader: 0x9
+        // Phase 2 adds public static field __CLR$R to interfaces, but public static non-final
+        // fields are illegal in interfaces. Fix: skip interfaces entirely.
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT,
+                INTERFACE_CLASS_NAME, null, JAVA_LANG_OBJECT, null);
+
+        // Interface default method
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, METHOD_NAME_GET_NAME,
+                METHOD_DESC_STRING_RETURN, null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitInsn(Opcodes.ARETURN);
+        mv.visitMaxs(1, 1);
+        mv.visitEnd();
+
+        cw.visitEnd();
+        byte[] classBytes = cw.toByteArray();
+
+        Map<String, Integer> methodIndices = new HashMap<>();
+        methodIndices.put(METHOD_NAME_GET_NAME + METHOD_DESC_STRING_RETURN, 42);
+
+        BytecodeInstrumenter.RecorderConfig config = new BytecodeInstrumenter.RecorderConfig(
+                TEST_DB_PATH, 1234L, 5678L, 100);
+        BytecodeInstrumenter instrumenter = new BytecodeInstrumenter(config);
+
+        byte[] result = instrumenter.instrument(classBytes, methodIndices);
+
+        // Interface should be skipped — no modification
+        assertNull("Interfaces should not be instrumented (would cause ClassFormatError)", result);
     }
 
     @Test

@@ -61,6 +61,12 @@ public class BytecodeInstrumenter {
 
         ClassReader reader = new ClassReader(classFileBytes);
 
+        // Skip interfaces — adding public static non-final fields is illegal in interfaces
+        // and causes ClassFormatError (e.g., "Illegal field modifiers in class: 0x9")
+        if ((reader.getAccess() & Opcodes.ACC_INTERFACE) != 0) {
+            return null;
+        }
+
         // First pass: detect if class has __CLR inner class (Case 1) or not (Case 2)
         String recorderOwner = findRecorderOwner(reader);
 
