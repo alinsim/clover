@@ -77,21 +77,42 @@ public final class FixedSizeCoverageRecorder extends BaseCoverageRecorder {
     }
 
     /**
-     * Increment slot at index
+     * Increment slot at index. Auto-grows the backing array if index exceeds capacity
+     * (Phase 2 bytecode instrumentation may inject indices beyond Phase 1's allocation).
      */
     @Override
     public void inc(int index) {
+        int[] e = elements;
+        if (index >= e.length) {
+            e = growTo(index + 1);
+        }
         testCoverage.set(index);
-        elements[index]++;
+        e[index]++;
     }
 
     /**
-     * @return coverage for slot at index but increment by one before evaluation
+     * @return coverage for slot at index but increment by one before evaluation.
+     * Auto-grows the backing array if index exceeds capacity.
      */
     @Override
     public int iget(int index) {
+        int[] e = elements;
+        if (index >= e.length) {
+            e = growTo(index + 1);
+        }
         testCoverage.set(index);
-        return ++elements[index];
+        return ++e[index];
+    }
+
+    private int[] growTo(int minCapacity) {
+        synchronized (this) {
+            if (minCapacity > elements.length) {
+                int[] newElements = new int[minCapacity];
+                System.arraycopy(elements, 0, newElements, 0, elements.length);
+                elements = newElements;
+            }
+            return elements;
+        }
     }
 
     @Override

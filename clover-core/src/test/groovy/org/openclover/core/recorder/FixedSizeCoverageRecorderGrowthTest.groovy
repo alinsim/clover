@@ -76,6 +76,44 @@ class FixedSizeCoverageRecorderGrowthTest {
     }
 
     @Test
+    void incAutoGrowsWhenIndexExceedsCapacity() {
+        // Reproduce: Phase 2 injects R.inc(14966) into a class whose recorder
+        // was sized for Phase 1's 9169 slots. Nobody called withCapacityFor().
+        FixedSizeCoverageRecorder recorder = new FixedSizeCoverageRecorder("test", 0, 100, 0L)
+
+        // Phase 2 index far beyond Phase 1 capacity — should auto-grow, not throw AIOOBE
+        recorder.inc(250)
+        recorder.inc(250)
+
+        assertEquals(3, recorder.iget(250))  // 2 from inc + 1 from iget
+    }
+
+    @Test
+    void igetAutoGrowsWhenIndexExceedsCapacity() {
+        FixedSizeCoverageRecorder recorder = new FixedSizeCoverageRecorder("test", 0, 100, 0L)
+
+        // iget also needs to auto-grow
+        assertEquals(1, recorder.iget(300))  // first call, auto-grows then increments
+    }
+
+    @Test
+    void incAutoGrowPreservesExistingData() {
+        FixedSizeCoverageRecorder recorder = new FixedSizeCoverageRecorder("test", 0, 100, 0L)
+
+        // Record Phase 1 data
+        recorder.inc(50)
+        recorder.inc(50)
+        recorder.inc(50)
+
+        // Phase 2 inc triggers auto-grow
+        recorder.inc(500)
+
+        // Phase 1 data preserved
+        assertEquals(4, recorder.iget(50))   // 3 + 1 from iget
+        assertEquals(2, recorder.iget(500))  // 1 + 1 from iget
+    }
+
+    @Test
     void withCapacityForMultipleGrowths() {
         FixedSizeCoverageRecorder recorder = new FixedSizeCoverageRecorder("test", 0, 100, 0L)
 
