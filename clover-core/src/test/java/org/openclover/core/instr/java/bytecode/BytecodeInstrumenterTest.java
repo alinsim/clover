@@ -5,6 +5,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -52,6 +53,8 @@ public class BytecodeInstrumenterTest {
     private static final String JAVA_UTIL_ARRAYLIST = "java/util/ArrayList";
     private static final String JAVA_UTIL_HASHMAP = "java/util/HashMap";
     private static final String INIT = "<init>";
+    private static final String METHOD_NAME_TEST_SOMETHING = "testSomething";
+    private static final String JUNIT5_TEST_ANNOTATION = "Lorg/junit/jupiter/api/Test;";
 
     @Test
     public void instrumentInjectsIncCallForSameClassWithRecorder() {
@@ -349,6 +352,89 @@ public class BytecodeInstrumenterTest {
         List<String> instructions = getMethodInstructions(result, METHOD_NAME_PROCESS, METHOD_DESC_OBJECT_VOID);
         assertTrue(MSG_SHOULD_HAVE_INC,
             instructions.stream().anyMatch(s -> s.contains(OPCODE_INVOKEVIRTUAL) && s.contains(METHOD_NAME_INC)));
+    }
+
+    @Test
+    public void instrumentPreservesAnnotationsOnUnmodifiedMethods() {
+        // Simulate a test class: @Test-annotated method (not generated) + generated getter.
+        // Phase 2 only instruments the getter. The @Test method must keep its annotation.
+        byte[] classBytes = generateTestClassWithAnnotationAndGeneratedMethod();
+
+        Map<String, Integer> methodIndices = new HashMap<>();
+        methodIndices.put(METHOD_NAME_GET_NAME + METHOD_DESC_VOID, 42);
+        // NOTE: testSomething is NOT in methodIndices — it should pass through unchanged
+
+        BytecodeInstrumenter.RecorderConfig config = new BytecodeInstrumenter.RecorderConfig(
+            TEST_DB_PATH, 1234L, 5678L, 100
+        );
+        BytecodeInstrumenter instrumenter = new BytecodeInstrumenter(config);
+
+        byte[] result = instrumenter.instrument(classBytes, methodIndices);
+        assertNotNull(MSG_INSTRUMENTED_NOT_NULL, result);
+
+        // Verify: getName() has inc() injected
+        List<String> getNameInstructions = getMethodInstructions(result, METHOD_NAME_GET_NAME, METHOD_DESC_VOID);
+        assertTrue(MSG_SHOULD_HAVE_INC,
+            getNameInstructions.stream().anyMatch(s -> s.contains(OPCODE_INVOKEVIRTUAL) && s.contains(METHOD_NAME_INC)));
+
+        // Verify: testSomething() still has its @Test annotation (org/junit/jupiter/api/Test)
+        assertTrue("@Test annotation must be preserved on unmodified method",
+            methodHasAnnotation(result, METHOD_NAME_TEST_SOMETHING, METHOD_DESC_VOID, JUNIT5_TEST_ANNOTATION));
+
+        // Verify: testSomething() does NOT have inc() (it wasn't in methodIndices)
+        List<String> testInstructions = getMethodInstructions(result, METHOD_NAME_TEST_SOMETHING, METHOD_DESC_VOID);
+        assertTrue("Unmodified test method should not have inc()",
+            testInstructions.stream().noneMatch(s -> s.contains(METHOD_NAME_INC)));
+    }
+
+    /**
+     * Generates a class simulating a JUnit 5 test class with:
+     * - testSomething() annotated with JUnit 5 Test annotation (unmodified by Phase 2)
+     * - getName() without annotation (generated method, will be instrumented)
+     */
+    private byte[] generateTestClassWithAnnotationAndGeneratedMethod() {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, TEST_CLASS_NAME, null, JAVA_LANG_OBJECT, null);
+
+        // testSomething() with @Test annotation
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, METHOD_NAME_TEST_SOMETHING, METHOD_DESC_VOID, null, null);
+        mv.visitAnnotation(JUNIT5_TEST_ANNOTATION, true).visitEnd();
+        mv.visitCode();
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 1);
+        mv.visitEnd();
+
+        // getName() — no annotation, simulates Lombok-generated
+        MethodVisitor mv2 = cw.visitMethod(Opcodes.ACC_PUBLIC, METHOD_NAME_GET_NAME, METHOD_DESC_VOID, null, null);
+        mv2.visitCode();
+        mv2.visitInsn(Opcodes.RETURN);
+        mv2.visitMaxs(0, 1);
+        mv2.visitEnd();
+
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    private boolean methodHasAnnotation(byte[] classBytes, String methodName, String descriptor, String annotationDesc) {
+        boolean[] found = {false};
+        new ClassReader(classBytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] exc) {
+                if (name.equals(methodName) && desc.equals(descriptor)) {
+                    return new MethodVisitor(Opcodes.ASM9) {
+                        @Override
+                        public AnnotationVisitor visitAnnotation(String annDesc, boolean visible) {
+                            if (annotationDesc.equals(annDesc)) {
+                                found[0] = true;
+                            }
+                            return null;
+                        }
+                    };
+                }
+                return null;
+            }
+        }, 0);
+        return found[0];
     }
 
     /**
