@@ -12,7 +12,10 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.openclover.core.api.instrumentation.ConcurrentInstrumentationException;
 import org.openclover.core.api.instrumentation.InstrumentationSession;
+import org.openclover.core.api.registry.ClassInfo;
+import org.openclover.core.api.registry.FileInfo;
 import org.openclover.core.api.registry.MethodInfo;
+import org.openclover.core.api.registry.PackageInfo;
 import org.openclover.core.context.ContextSetImpl;
 import org.openclover.core.instr.InstrumentationSessionImpl;
 import org.openclover.core.registry.Clover2Registry;
@@ -277,6 +280,65 @@ public class HybridInstrumenterIntegrationTest {
         // Verify class file was NOT modified
         long finalSize = userClassFile.length();
         assertEquals("Class file size should not change", originalSize, finalSize);
+    }
+
+    @Test
+    public void generatedMethodsRegisteredInRegistryForReportVisibility()
+            throws IOException, CloverException, ConcurrentInstrumentationException {
+
+        // Phase 1: Register only getDisplayName
+        Clover2Registry registry = new Clover2Registry(registryFile, "test");
+        InstrumentationSession session = registry.startInstr();
+
+        session.enterFile(PACKAGE_NAME, new File(SOURCE_FILE), 20, 15,
+                System.currentTimeMillis(), 500L, 111111L);
+        session.enterClass(CLASS_NAME, new FixedSourceRegion(1, 0), new Modifiers(), false, false, false);
+
+        ((InstrumentationSessionImpl) session).enterMethod(
+            new ContextSetImpl(), new FixedSourceRegion(10, 0),
+            new MethodSignature(METHOD_GET_DISPLAY_NAME), false);
+        session.exitMethod(15, 0);
+        session.exitClass(20, 0);
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        // Phase 2: .class file has 3 methods (1 Phase 1 + 2 generated)
+        createUserClassFile(CLASS_INTERNAL_NAME, new String[][] {
+            {METHOD_GET_DISPLAY_NAME, DESC_STRING, String.valueOf(Opcodes.ACC_PUBLIC)},
+            {METHOD_GET_NAME, DESC_STRING, String.valueOf(Opcodes.ACC_PUBLIC)},
+            {METHOD_SET_NAME, DESC_SET_STRING, String.valueOf(Opcodes.ACC_PUBLIC)}
+        });
+
+        HybridInstrumenter instrumenter = new HybridInstrumenter();
+        HybridInstrumenter.Result result = instrumenter.instrument(classDir, registryFile, 0L, 0L);
+        assertEquals(2, result.getGeneratedMethodsFound());
+
+        // RELOAD registry and verify Phase 2 methods are registered
+        Clover2Registry reloaded = Clover2Registry.fromFile(registryFile);
+        int totalMethods = 0;
+        boolean foundGetName = false;
+        boolean foundSetName = false;
+
+        for (PackageInfo pkg : reloaded.getProject().getAllPackages()) {
+            for (FileInfo file : pkg.getFiles()) {
+                for (ClassInfo clazz : file.getClasses()) {
+                    for (MethodInfo method : clazz.getMethods()) {
+                        totalMethods++;
+                        if (method.getSimpleName().equals(METHOD_GET_NAME)) {
+                            foundGetName = true;
+                        }
+                        if (method.getSimpleName().equals(METHOD_SET_NAME)) {
+                            foundSetName = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        assertTrue("getName should be registered in registry", foundGetName);
+        assertTrue("setName should be registered in registry", foundSetName);
+        assertEquals("Registry should have 3 methods (1 Phase 1 + 2 Phase 2)", 3, totalMethods);
     }
 
     // Helper methods
