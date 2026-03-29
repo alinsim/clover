@@ -20,6 +20,11 @@
 This repository contains source code of OpenClover Core as well as its integrations with Ant, Eclipse
 and IntelliJ IDEA. Sources are licensed under Apache 2.0 license.
 
+The Java source instrumentation engine has been migrated from ANTLR 2.7.7 to
+[JavaParser 3.26.3](https://javaparser.org/), a modern actively-maintained Java parser that
+tracks Java language releases automatically. The IntelliJ IDEA plugin has been rebuilt from
+scratch in Kotlin, targeting IntelliJ 2025.1+.
+
 # Documentation #
 
 User documentation, developer guides and support knowledge base:
@@ -55,17 +60,20 @@ See also:
 
 # Quick setup for developing OpenClover
 
-### Install JDK 17, Ant 1.10+, Maven 3.8+, Git
+### Requirements
+
+* JDK 17+
+* Maven 3.8+
+* Gradle 9.4+ (for the IntelliJ IDEA plugin only)
 
 ### Prepare repacked third party libraries
 
 ```
 mvn install -Pworkspace-setup -f clover-core-libs/pom.xml
 mvn install -Pworkspace-setup -f clover-eclipse-libs/pom.xml
-mvn install -Pworkspace-setup -f clover-idea-libs/pom.xml
 ```
 
-### Download KTremap and install it
+### Download KTreemap and install it
 
 Add https://packages.atlassian.com/mvn/maven-atlassian-external to your list of Maven repositories in settings.xml
 
@@ -82,20 +90,33 @@ wget $PACKAGES_ATLASSIAN_COM/$KTREEMAP_PATH/ktreemap-1.1.0-atlassian-01.pom
 mvn install:install-file -Dfile=ktreemap-1.1.0-atlassian-01.jar -DpomFile=ktreemap-1.1.0-atlassian-01.pom
 ```
 
-Now you can work with the code using Maven. You can also open it in IntelliJ IDEA,
-by importing the root pom.xml.
+### Build with Make
 
-### Example commands
+A Makefile orchestrates both the Maven and Gradle builds:
+
+```
+make              # show available targets
+make core         # build clover-core + deps (fastest iteration)
+make build        # full build — all Maven modules + IDEA plugin
+make test         # run all tests
+make snapshot     # quick core + IDEA plugin build (no tests)
+make idea         # build just the IDEA plugin (requires 'make core' first)
+```
+
+### Build manually
 
 ```
 # Compile everything and run all tests
 mvn test
 
-# Install all modules locally, without testing 
+# Install all modules locally, without testing
 mvn install -DskipTests=true
 
 # Run tests for three main modules
 mvn test -pl clover-ant,clover-core,clover-groovy
+
+# Build the IntelliJ IDEA plugin (after mvn install)
+cd clover-idea && ./gradlew build
 ```
 
 ---
@@ -104,3 +125,4 @@ Copyright @ 2002 - 2017 Atlassian Pty Ltd
 
 Copyright @ 2017 - 2023 modifications by OpenClover.org
 
+Copyright @ 2024 - 2026 modifications by contributors
