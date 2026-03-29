@@ -22,6 +22,7 @@ public class Format {
     private static final Columns DEFAULT_HTML_COLUMNS = new Columns();
     static {
         DEFAULT_HTML_COLUMNS.addConfiguredTotalChildren(new Columns.TotalChildren());
+        DEFAULT_HTML_COLUMNS.addConfiguredTotalBranches(new Columns.TotalBranches());
         DEFAULT_HTML_COLUMNS.addConfiguredAvgMethodComplexity(new Columns.AvgMethodComplexity());
         Columns.TotalPercentageCovered column = new Columns.TotalPercentageCovered();
         column.setFormat(ColumnFormat.LONGBAR);
