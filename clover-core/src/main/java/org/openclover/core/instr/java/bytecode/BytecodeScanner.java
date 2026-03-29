@@ -4,6 +4,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.openclover.runtime.CloverNames;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -126,6 +127,13 @@ public class BytecodeScanner {
      * - Its outer class (for inner classes like User$Builder) is in the registry
      */
     private boolean isProjectClass(String className, Map<String, Set<MethodSignatureKey>> phase1Methods) {
+        // Skip Clover's own instrumentation artifacts (recorder classes, Tracker)
+        // injected by Phase 1 as inner classes during source instrumentation.
+        // Uses CloverNames.CLOVER_PREFIX convention — no clean structural alternative.
+        if (className.contains("$" + CloverNames.CLOVER_PREFIX)) {
+            return false;
+        }
+
         if (phase1Methods.containsKey(className)) {
             return true;
         }

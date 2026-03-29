@@ -19,11 +19,12 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 public class BytecodeScannerTest {
 
     private static final String COM_EXAMPLE_USER = "com/example/User";
+    private static final String CLR_INNER_CLASS = "com/example/User$__CLR5_0_0abc123";
+    private static final String TRACKER_CLASS = "com/example/User$__CLR5_0_0abc123$Tracker";
     private static final String GET_NAME = "getName";
     private static final String SET_NAME = "setName";
     private static final String JAVA_LANG_OBJECT = "java/lang/Object";
@@ -134,6 +135,22 @@ public class BytecodeScannerTest {
         );
 
         // Dependency class should be skipped — 0 generated methods
+        assertEquals(0, generated.size());
+    }
+
+    @Test
+    public void findGeneratedMethodsSkipsCloverRecorderInnerClasses() throws IOException {
+        // Phase 1 injects __CLR inner classes into instrumented source. After compilation,
+        // these become separate .class files. Phase 2 must NOT treat them as user code.
+        createClassFile(CLR_INNER_CLASS, "public:inc:()V");
+        createClassFile(TRACKER_CLASS, "public:close:()V");
+
+        Map<String, Set<MethodSignatureKey>> phase1Methods = new HashMap<>();
+        phase1Methods.put(COM_EXAMPLE_USER, new HashSet<>());
+
+        List<GeneratedMethod> generated = scanner.findGeneratedMethods(
+            tempDir.getRoot(), phase1Methods);
+
         assertEquals(0, generated.size());
     }
 
