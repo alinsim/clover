@@ -33,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -744,6 +745,31 @@ public class AstInstrumenterTest {
 
         assertTrue("Should contain R.inc for switch cases", output.contains(INC_MARKER));
         assertParseable(output);
+    }
+
+    /**
+     * Tests that try-with-resources injects Tracker resource for cleanup tracking.
+     */
+    @Test
+    public void sessionTryWithResourcesInjectsTracker() throws Exception {
+        String source = "class Foo { void bar() throws Exception {"
+                + " try (java.io.InputStream is = new java.io.FileInputStream(\"f\")) {"
+                + " is.read(); } } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // addStatement called at least twice: entry + cleanup (Tracker)
+        verify(session, atLeast(2)).addStatement(any(), any(), anyInt(), any());
+
+        // Output should contain Tracker resource
+        String result = output.toString();
+        assertTrue("Should contain Tracker resource", result.contains("Tracker"));
     }
 
     /**

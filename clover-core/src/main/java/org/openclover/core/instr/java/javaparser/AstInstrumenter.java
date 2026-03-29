@@ -13,6 +13,7 @@ import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.expr.LambdaExpr;
@@ -642,6 +643,23 @@ public class AstInstrumenter {
                             }
                         }
                     });
+
+                    // Register cleanup statement and inject Tracker resource
+                    Expression lastResource =
+                            tryStmt.getResources().get(tryStmt.getResources().size() - 1);
+                    Position lastResEnd = lastResource.getEnd().orElse(null);
+                    if (lastResEnd != null) {
+                        FixedSourceRegion closeRegion = new FixedSourceRegion(lastResEnd.line, lastResEnd.column);
+                        FullStatementInfo closeInfo = session.addStatement(
+                                new ContextSetImpl(), closeRegion, 0,
+                                LanguageConstruct.Builtin.STATEMENT);
+                        int closeIndex = closeInfo.getDataIndex();
+
+                        // Add Tracker as a resource: new RecorderBase.Tracker(closeIndex)
+                        String recorderBase = extractRecorderBase();
+                        String trackerExpr = "new " + recorderBase + ".Tracker(" + closeIndex + ")";
+                        tryStmt.getResources().add(StaticJavaParser.parseExpression(trackerExpr));
+                    }
                 }
             }
 
@@ -714,6 +732,12 @@ public class AstInstrumenter {
                 } else if (stmt instanceof ForEachStmt) {
                     instrumentLoopBody(((ForEachStmt) stmt).getBody());
                     i++;
+                } else if (stmt instanceof TryStmt) {
+                    // Delegate to visit(TryStmt) for try-with-resources Tracker injection
+                    visit((TryStmt) stmt, null);
+                    // visit(TryStmt) may insert R.inc before this stmt, shifting indices
+                    i = block.getStatements().indexOf(stmt) + 1;
+                    if (i <= 0) i = block.getStatements().size(); // safety
                 } else if (stmt instanceof BlockStmt) {
                     instrumentBlock((BlockStmt) stmt);
                     i++;
