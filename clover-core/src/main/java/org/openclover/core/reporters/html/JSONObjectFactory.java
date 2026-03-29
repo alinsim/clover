@@ -70,12 +70,15 @@ public class JSONObjectFactory {
             classMap.put("el", classInfo.getEndLine());
             classMap.put("name", classInfo.getName());
 
-            final List<Map<String, Integer>> methods = newArrayList();
+            final List<Map<String, Object>> methods = newArrayList();
             for (final MethodInfo methodInfo : classInfo.getMethods()) {
-                final Map<String, Integer> method = newHashMap();
+                final Map<String, Object> method = newHashMap();
                 method.put("sl", methodInfo.getStartLine());
                 method.put("el", methodInfo.getEndLine());
                 method.put("sc", methodInfo.getStartColumn());
+                if (methodInfo.isGenerated()) {
+                    method.put("generated", true);
+                }
                 methods.add(method);
             }
             classMap.put("methods", methods);

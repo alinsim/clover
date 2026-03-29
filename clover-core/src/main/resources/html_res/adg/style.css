@@ -814,3 +814,16 @@ td.cloud-report-min-label {
     -ms-transform: translatex(-0.5em);
     transform: translatex(-0.5em);
 }
+
+.generatedBadge {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: normal;
+    color: #707070;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    vertical-align: middle;
+}

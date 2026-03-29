@@ -4,7 +4,7 @@
 ## either display a static test name (if available) or a method name
 #if ($method.staticTestName) #set ($displayedMethodName = $method.staticTestName) #else #set ($displayedMethodName = $method.name) #end
 <span class="sortValue">${renderUtil.truncateStart($displayedMethodName)}</span>
-${renderUtil.getMethodIndentiation($method)}&#160;&#160;<a href="?line=29#${method.startLine}" title="${renderUtil.htmlEscapeStr($displayedMethodName)}" name="sl-${method.startLine}" onclick="closeDialogAndScrollTo('dialog-${class.name}', '${method.startLine}');">${renderUtil.truncateStart($displayedMethodName)}</a>
+${renderUtil.getMethodIndentiation($method)}&#160;&#160;<a href="?line=29#${method.startLine}" title="${renderUtil.htmlEscapeStr($displayedMethodName)}" name="sl-${method.startLine}" onclick="closeDialogAndScrollTo('dialog-${class.name}', '${method.startLine}');">${renderUtil.truncateStart($displayedMethodName)}</a>#if($method.generated)<span class="generatedBadge" title="Discovered via bytecode scanning (Lombok, compiler-generated)">generated</span>#end
 </td>
 <td align="right"><span class="sortValue">$method.startLine</span>${method.startLine}</td>
 #foreach ($col in $columns)

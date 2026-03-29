@@ -293,6 +293,9 @@ public class XMLReporter extends CloverReporter {
                         attribs.put(XmlNames.A_COUNT, String.valueOf(start.getHitCount()));
                         attribs.put(XmlNames.A_COMPLEXITY, String.valueOf(start.getComplexity()));
                         attribs.put(XmlNames.A_METHOD_SIG, XMLWriter.escapeAttributeValue(start.getName()));
+                        if (start.isGenerated()) {
+                            attribs.put("generated", "true");
+                        }
                         if (start.isTest()) {
                             final FullClassInfo clazz = (FullClassInfo) start.getContainingClass();
                             final TestCaseInfo tci = clazz.getTestCase(clazz.getQualifiedName() + "." + start.getSimpleName());
