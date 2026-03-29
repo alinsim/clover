@@ -276,6 +276,7 @@
                         <configuration>
                             <artifactSet>
                                 <includes>
+                                    <include>org.ow2.asm:asm</include>
                                     <include>antlr:antlr</include>
                                     <include>org.jetbrains:annotations</include>
                                     <include>commons-codec:commons-codec</include>
@@ -410,6 +411,13 @@
                             </filters>
                             <minimizeJar>true</minimizeJar>
                             <relocations>
+                                <relocation>
+                                    <pattern>org.objectweb.asm</pattern>
+                                    <shadedPattern>clover.org.objectweb.asm</shadedPattern>
+                                    <includes>
+                                        <include>org.objectweb.asm.**</include>
+                                    </includes>
+                                </relocation>
                                 <relocation>
                                     <pattern>antlr</pattern>
                                     <shadedPattern>clover.antlr</shadedPattern>
