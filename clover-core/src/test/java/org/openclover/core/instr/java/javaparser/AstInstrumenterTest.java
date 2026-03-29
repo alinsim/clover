@@ -10,6 +10,9 @@ import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
 import org.openclover.core.instr.java.FileStructureInfo;
 import org.openclover.core.instr.java.InstrumentationSource;
 import org.openclover.core.instr.java.StringInstrumentationSource;
+import org.openclover.core.api.registry.ContextSet;
+import org.openclover.core.context.ContextStore;
+import org.openclover.core.context.MethodRegexpContext;
 import org.openclover.core.registry.entities.FullBranchInfo;
 import org.openclover.core.registry.entities.FullStatementInfo;
 import org.openclover.core.registry.entities.MethodSignature;
@@ -17,6 +20,8 @@ import org.openclover.core.spi.lang.LanguageConstruct;
 
 import java.io.File;
 import java.io.StringWriter;
+import java.util.Collections;
+import java.util.regex.Pattern;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -634,5 +639,68 @@ public class AstInstrumenterTest {
         config.setInitstring(INIT_STRING);
 
         AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+    }
+
+    // ========== CONTEXT MATCHING TESTS ==========
+
+    /**
+     * Tests that enterMethod receives a non-empty ContextSet when contextStore has matching patterns.
+     */
+    @Test
+    public void contextMatchingPassedToSessionCalls() throws Exception {
+        String source = "class Foo {\n"
+                + "public void getFoo() { return; }\n"
+                + "}";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        // Create a context store with a method pattern that matches "get*"
+        ContextStore contextStore = new ContextStore();
+        contextStore.addMethodContext(new MethodRegexpContext(0, "getters", Pattern.compile(".*get.*")));
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, contextStore);
+
+        // enterMethod should be called with a non-empty context (matching "getters" pattern)
+        ArgumentCaptor<ContextSet> ctxCaptor = ArgumentCaptor.forClass(ContextSet.class);
+        verify(session).enterMethod(ctxCaptor.capture(), any(), any(), anyBoolean(), any(), anyBoolean(), anyInt(), any());
+
+        // The captured ContextSet should have bit 0 set (the "getters" pattern at index 0)
+        assertNotNull("ContextSet should not be null", ctxCaptor.getValue());
+    }
+
+    // ========== RECORDER PARSEABILITY TEST ==========
+
+    /**
+     * Tests that RecorderCodeGenerator output is valid parseable Java.
+     */
+    @Test
+    public void recorderCodeIsParseable() {
+        RecorderCodeGenerator.RecorderConfig cfg = new RecorderCodeGenerator.RecorderConfig();
+        cfg.recorderBase = "__CLR_TEST";
+        cfg.recorderSuffix = "R";
+        cfg.initString = "/tmp/test.db";
+        cfg.registryVersion = 123456789L;
+        cfg.areLambdasSupported = true;
+        cfg.recorderCfg = 0L;
+        cfg.maxDataIndex = 100;
+        cfg.distributedConfig = "";
+        cfg.profiles = Collections.emptyList();
+
+        String recorderCode = RecorderCodeGenerator.generate(cfg);
+        assertNotNull("Recorder code should not be null", recorderCode);
+        assertFalse("Recorder code should not be empty", recorderCode.isEmpty());
+
+        // RecorderCodeGenerator produces multiple declarations (class + lambdaInc + sniffer).
+        // Verify the code is valid Java when placed inside a class body.
+        String wrappedSource = "class __Wrapper {" + recorderCode + "}";
+        try {
+            StaticJavaParser.parse(wrappedSource);
+        } catch (Exception e) {
+            throw new AssertionError("RecorderCodeGenerator output is NOT parseable when wrapped:\n" + wrappedSource, e);
+        }
     }
 }

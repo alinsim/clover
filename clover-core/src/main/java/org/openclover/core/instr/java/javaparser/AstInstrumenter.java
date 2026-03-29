@@ -501,8 +501,9 @@ public class AstInstrumenter {
             int complexity = calculateComplexity(method);
 
             String staticTestName = isTest ? method.getNameAsString() : null;
+            ContextSetImpl methodContext = matchMethodContexts(method);
             MethodInfo methodInfo = session.enterMethod(
-                    new ContextSetImpl(),
+                    methodContext,
                     region, signature, isTest, staticTestName, false, complexity,
                     LanguageConstruct.Builtin.METHOD);
 
@@ -698,8 +699,9 @@ public class AstInstrumenter {
                     Position pos = stmt.getBegin().orElse(null);
                     if (pos != null && isInstrumentationEnabled(pos.line)) {
                         FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
+                        ContextSetImpl stmtContext = matchStatementContexts(stmt);
                         FullStatementInfo stmtInfo = session.addStatement(
-                                new ContextSetImpl(),
+                                stmtContext,
                                 region, 0,
                                 LanguageConstruct.Builtin.STATEMENT);
                         int stmtIndex = stmtInfo.getDataIndex();
