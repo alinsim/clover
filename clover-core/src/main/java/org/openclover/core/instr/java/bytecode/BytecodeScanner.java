@@ -128,9 +128,12 @@ public class BytecodeScanner {
      */
     private boolean isProjectClass(String className, Map<String, Set<MethodSignatureKey>> phase1Methods) {
         // Skip Clover's own instrumentation artifacts (recorder classes, Tracker)
-        // injected by Phase 1 as inner classes during source instrumentation.
-        // Uses CloverNames.CLOVER_PREFIX convention — no clean structural alternative.
         if (className.contains("$" + CloverNames.CLOVER_PREFIX)) {
+            return false;
+        }
+
+        // Skip anonymous inner classes ($1, $2, etc.) — compiler-generated, not user code
+        if (isAnonymousInnerClass(className)) {
             return false;
         }
 
@@ -144,5 +147,18 @@ public class BytecodeScanner {
             return phase1Methods.containsKey(outerClass);
         }
         return false;
+    }
+
+    /**
+     * Returns true if the class is an anonymous inner class (e.g., User$1, User$2).
+     * These are compiler-generated and not meaningful user code.
+     */
+    private boolean isAnonymousInnerClass(String className) {
+        int dollarIndex = className.lastIndexOf('$');
+        if (dollarIndex < 0 || dollarIndex == className.length() - 1) {
+            return false;
+        }
+        char firstAfterDollar = className.charAt(dollarIndex + 1);
+        return Character.isDigit(firstAfterDollar);
     }
 }

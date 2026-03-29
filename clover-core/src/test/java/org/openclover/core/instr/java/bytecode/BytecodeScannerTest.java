@@ -25,6 +25,7 @@ public class BytecodeScannerTest {
     private static final String COM_EXAMPLE_USER = "com/example/User";
     private static final String CLR_INNER_CLASS = "com/example/User$__CLR5_0_0abc123";
     private static final String TRACKER_CLASS = "com/example/User$__CLR5_0_0abc123$Tracker";
+    private static final String ANON_INNER_CLASS = "com/example/User$1";
     private static final String GET_NAME = "getName";
     private static final String SET_NAME = "setName";
     private static final String JAVA_LANG_OBJECT = "java/lang/Object";
@@ -144,6 +145,19 @@ public class BytecodeScannerTest {
         // these become separate .class files. Phase 2 must NOT treat them as user code.
         createClassFile(CLR_INNER_CLASS, "public:inc:()V");
         createClassFile(TRACKER_CLASS, "public:close:()V");
+
+        Map<String, Set<MethodSignatureKey>> phase1Methods = new HashMap<>();
+        phase1Methods.put(COM_EXAMPLE_USER, new HashSet<>());
+
+        List<GeneratedMethod> generated = scanner.findGeneratedMethods(
+            tempDir.getRoot(), phase1Methods);
+
+        assertEquals(0, generated.size());
+    }
+
+    @Test
+    public void findGeneratedMethodsSkipsAnonymousInnerClasses() throws IOException {
+        createClassFile(ANON_INNER_CLASS, "public:run:()V");
 
         Map<String, Set<MethodSignatureKey>> phase1Methods = new HashMap<>();
         phase1Methods.put(COM_EXAMPLE_USER, new HashSet<>());
