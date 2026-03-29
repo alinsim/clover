@@ -269,8 +269,8 @@ public class JavaParserInstrumenterTest {
         String source = "class Foo {\n    void bar(boolean b) {\n        if (b) {\n            System.out.println(\"yes\");\n        }\n    }\n}";
 
         int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
-        // Should have method entry (1) + if-then branch (1) + statement (1) = 3
-        assertEquals("Should count method entry, branch, and statement", 3, count);
+        // Should have method entry (1) + if true branch (1) + if false branch (1) + statement (1) = 4
+        assertEquals("Should count method entry, branch pair, and statement", 4, count);
     }
 
     @Test
@@ -284,8 +284,8 @@ public class JavaParserInstrumenterTest {
         assertTrue(MSG_MULTIPLE_INC, result.contains(INC_PREFIX));
 
         int count = JavaParserInstrumenter.countInstrumentationPoints(source, RECORDER_PREFIX);
-        // Method entry (1) + for body (1) + if-then (1) + break (1) + if-then (1) + continue (1) = 6
-        assertEquals("Should count all instrumentation points", 6, count);
+        // Method entry (1) + for body (1) + if true+false (2) + break (1) + if true+false (2) + continue (1) = 8
+        assertEquals("Should count all instrumentation points", 8, count);
     }
 
     @Test

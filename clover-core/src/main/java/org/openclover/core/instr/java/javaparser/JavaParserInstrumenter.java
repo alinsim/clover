@@ -343,14 +343,26 @@ public class JavaParserInstrumenter {
 
         @Override
         public void visit(IfStmt stmt, List<Insertion> insertions) {
-            // Instrument then branch
-            Statement thenStmt = stmt.getThenStmt();
-            instrumentBranch(thenStmt, insertions);
+            // Allocate a branch PAIR: index N = true, index N+1 = false
+            int trueIndex = indexCounter.getAndIncrement();
+            int falseIndex = indexCounter.getAndIncrement();
 
-            // Instrument else branch if present
+            // Instrument then branch (true) with trueIndex
+            Statement thenStmt = stmt.getThenStmt();
+            instrumentBranchWithIndex(thenStmt, trueIndex, insertions);
+
+            // Instrument else branch (false) with falseIndex
             Optional<Statement> elseStmt = stmt.getElseStmt();
             if (elseStmt.isPresent()) {
-                instrumentBranch(elseStmt.get(), insertions);
+                instrumentBranchWithIndex(elseStmt.get(), falseIndex, insertions);
+            } else {
+                // No else block: synthesize else { R.inc(falseIndex); }
+                Optional<Position> thenEnd = thenStmt.getEnd();
+                if (thenEnd.isPresent() && isInstrumentationEnabled(thenEnd.get().line)) {
+                    String incCode = recorderPrefix + INC_PREFIX + falseIndex + INC_SUFFIX;
+                    insertions.add(Insertion.after(thenEnd.get().line, thenEnd.get().column,
+                            "else{" + incCode + "}", 16));
+                }
             }
 
             super.visit(stmt, insertions);
@@ -703,7 +715,20 @@ public class JavaParserInstrumenter {
          * Instruments a branch by inserting R.inc(N) at the start of the branch body.
          * If the branch is not a block statement, inserts before the statement directly.
          */
+        /**
+         * Instruments a branch body (loop body, switch case) by allocating a new index.
+         * Used for constructs that only have a single branch (while, for, do-while).
+         */
         private void instrumentBranch(Statement branchBody, List<Insertion> insertions) {
+            int index = indexCounter.getAndIncrement();
+            instrumentBranchWithIndex(branchBody, index, insertions);
+        }
+
+        /**
+         * Instruments a branch body with an explicit data index.
+         * Used by if-then-else where the true/false indices are allocated as a pair.
+         */
+        private void instrumentBranchWithIndex(Statement branchBody, int index, List<Insertion> insertions) {
             Optional<Position> pos = branchBody.getBegin();
             if (!pos.isPresent()) {
                 return;
@@ -713,15 +738,11 @@ public class JavaParserInstrumenter {
                 return;
             }
 
-            int index = indexCounter.getAndIncrement();
             String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
 
             if (branchBody instanceof BlockStmt) {
-                // For block statements, insert after the opening brace
                 insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
             } else {
-                // For single statements (braceless body), wrap with braces so
-                // R.inc() + original statement stay together inside the branch
                 Optional<Position> end = branchBody.getEnd();
                 if (end.isPresent()) {
                     insertions.add(Insertion.before(pos.get().line, pos.get().column, "{" + incCode, 15));

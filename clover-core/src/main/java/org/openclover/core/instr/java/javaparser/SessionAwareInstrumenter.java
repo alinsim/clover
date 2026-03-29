@@ -719,12 +719,40 @@ public class SessionAwareInstrumenter {
 
         @Override
         public void visit(IfStmt stmt, List<Insertion> insertions) {
+            // Register ONE branch point for the if condition.
+            // addBranch() allocates a PAIR of data slots: index N = true, N+1 = false.
             Statement thenStmt = stmt.getThenStmt();
-            instrumentBranch(thenStmt, insertions);
+            Optional<Position> thenPos = thenStmt.getBegin();
+            if (thenPos.isPresent()) {
+                FixedSourceRegion region = new FixedSourceRegion(thenPos.get().line, thenPos.get().column);
+                FullBranchInfo branchInfo = session.addBranch(
+                        new ContextSetImpl(),
+                        region,
+                        true,
+                        0,
+                        LanguageConstruct.Builtin.BRANCH);
 
-            Optional<Statement> elseStmt = stmt.getElseStmt();
-            if (elseStmt.isPresent()) {
-                instrumentBranch(elseStmt.get(), insertions);
+                if (isInstrumentationEnabled(thenPos.get().line)) {
+                    int trueIndex = branchInfo.getDataIndex();
+                    int falseIndex = trueIndex + 1;
+
+                    // True branch: R.inc(trueIndex) in then block
+                    instrumentBranchBodyWithIndex(thenStmt, trueIndex, insertions);
+
+                    // False branch: R.inc(falseIndex) in else block or synthetic else
+                    Optional<Statement> elseStmt = stmt.getElseStmt();
+                    if (elseStmt.isPresent()) {
+                        instrumentBranchBodyWithIndex(elseStmt.get(), falseIndex, insertions);
+                    } else {
+                        // No else: synthesize else { R.inc(falseIndex); }
+                        Optional<Position> thenEnd = thenStmt.getEnd();
+                        if (thenEnd.isPresent()) {
+                            String incCode = recorderPrefix + INC_PREFIX + falseIndex + INC_SUFFIX;
+                            insertions.add(Insertion.after(thenEnd.get().line, thenEnd.get().column,
+                                    "else{" + incCode + "}", 16));
+                        }
+                    }
+                }
             }
 
             super.visit(stmt, insertions);
@@ -1200,9 +1228,9 @@ public class SessionAwareInstrumenter {
         }
 
         /**
-         * Instruments a branch by inserting R.inc(N) at the start of the branch body.
-         * Always registers the statement (even in CLOVER:OFF regions) so it appears in the coverage model,
-         * but only inserts the instrumentation code when enabled.
+         * Instruments a branch by registering it with the session and inserting R.inc(N).
+         * Used for loops (while, for, do-while, for-each) which have only a single branch (body executed).
+         * For if-then-else, use the paired approach in visit(IfStmt) instead.
          */
         private void instrumentBranch(Statement branchBody, List<Insertion> insertions) {
             Optional<Position> pos = branchBody.getBegin();
@@ -1210,7 +1238,6 @@ public class SessionAwareInstrumenter {
                 return;
             }
 
-            // Register as a BRANCH (not statement) so branch metrics are correct
             FixedSourceRegion region = new FixedSourceRegion(pos.get().line, pos.get().column);
             FullBranchInfo branchInfo = session.addBranch(
                     new ContextSetImpl(),
@@ -1219,19 +1246,31 @@ public class SessionAwareInstrumenter {
                     0,
                     LanguageConstruct.Builtin.BRANCH);
 
-            // Only insert instrumentation code if enabled (respects CLOVER:OFF)
             if (isInstrumentationEnabled(pos.get().line)) {
                 int index = branchInfo.getDataIndex();
-                String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+                instrumentBranchBodyWithIndex(branchBody, index, insertions);
+            }
+        }
 
-                if (branchBody instanceof BlockStmt) {
-                    insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
-                } else {
-                    Optional<Position> end = branchBody.getEnd();
-                    if (end.isPresent()) {
-                        insertions.add(Insertion.before(pos.get().line, pos.get().column, "{" + incCode, 15));
-                        insertions.add(Insertion.after(end.get().line, end.get().column, "}", 16));
-                    }
+        /**
+         * Inserts R.inc(index) at the start of a branch body.
+         * Used by both instrumentBranch (for loops) and visit(IfStmt) (for if-else pairs).
+         */
+        private void instrumentBranchBodyWithIndex(Statement branchBody, int index, List<Insertion> insertions) {
+            Optional<Position> pos = branchBody.getBegin();
+            if (!pos.isPresent()) {
+                return;
+            }
+
+            String incCode = recorderPrefix + INC_PREFIX + index + INC_SUFFIX;
+
+            if (branchBody instanceof BlockStmt) {
+                insertions.add(Insertion.after(pos.get().line, pos.get().column, incCode, 15));
+            } else {
+                Optional<Position> end = branchBody.getEnd();
+                if (end.isPresent()) {
+                    insertions.add(Insertion.before(pos.get().line, pos.get().column, "{" + incCode, 15));
+                    insertions.add(Insertion.after(end.get().line, end.get().column, "}", 16));
                 }
             }
         }
