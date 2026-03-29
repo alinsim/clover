@@ -169,7 +169,9 @@ public interface MethodInfo extends
      *
      * @return boolean true if method was discovered from bytecode, false if from source
      */
-    boolean isGenerated();
+    default boolean isGenerated() {
+        return false;
+    }
 
     /**
      * Name of the test associated with a method. Some test frameworks can declare a name of the test using annotations
