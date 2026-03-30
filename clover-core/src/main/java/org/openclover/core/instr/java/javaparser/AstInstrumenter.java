@@ -26,7 +26,9 @@ import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.SwitchEntry;
+import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
+import com.github.javaparser.ast.stmt.YieldStmt;
 import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
@@ -717,30 +719,68 @@ public class AstInstrumenter {
 
         @Override
         public void visit(SwitchEntry entry, Void arg) {
-            // Only handle switch statement entries (not switch expression entries)
-            if (entry.getParentNode().isPresent()
-                    && !(entry.getParentNode().get() instanceof SwitchExpr)) {
+            List<Statement> statements = entry.getStatements();
+            if (statements.isEmpty()) {
+                super.visit(entry, arg);
+                return;
+            }
 
-                List<Statement> statements = entry.getStatements();
-                if (!statements.isEmpty()) {
-                    Statement first = statements.get(0);
-                    Position pos = first.getBegin().orElse(null);
-                    if (pos != null && isInstrumentationEnabled(pos.line)) {
-                        if (first instanceof BlockStmt) {
-                            // Arrow-case with block: case X -> { ... }
-                            instrumentBlock((BlockStmt) first);
-                        } else if (isExecutableStatement(first)) {
-                            // Colon-case: case X: stmt; — insert R.inc before first statement
-                            FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
-                            FullStatementInfo stmtInfo = session.addStatement(
-                                    new ContextSetImpl(), region, 0,
-                                    LanguageConstruct.Builtin.STATEMENT);
-                            int stmtIndex = stmtInfo.getDataIndex();
-                            statements.add(0,
-                                    StaticJavaParser.parseStatement(
-                                            recorderPrefix + INC_PREFIX + stmtIndex + INC_SUFFIX));
-                        }
+            Statement first = statements.get(0);
+            Position pos = first.getBegin().orElse(null);
+            if (pos == null || !isInstrumentationEnabled(pos.line)) {
+                super.visit(entry, arg);
+                return;
+            }
+
+            boolean isInSwitchExpr = entry.getParentNode()
+                    .map(p -> p instanceof SwitchExpr).orElse(false);
+
+            if (entry.getType() == SwitchEntry.Type.EXPRESSION
+                    || entry.getType() == SwitchEntry.Type.THROWS_STATEMENT) {
+                // Arrow expression/throw case: rewrite to block
+                FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
+                FullStatementInfo stmtInfo = session.addStatement(
+                        new ContextSetImpl(), region, 1,
+                        LanguageConstruct.Builtin.STATEMENT);
+                int stmtIndex = stmtInfo.getDataIndex();
+
+                BlockStmt block = new BlockStmt();
+                block.addStatement(StaticJavaParser.parseStatement(
+                        recorderPrefix + INC_PREFIX + stmtIndex + INC_SUFFIX));
+
+                if (isInSwitchExpr && !(first instanceof ThrowStmt)) {
+                    // Switch EXPRESSION: need yield
+                    // Extract the expression from the ExpressionStmt
+                    if (first.isExpressionStmt()) {
+                        Expression expr = first.asExpressionStmt().getExpression();
+                        block.addStatement(new YieldStmt(expr.clone()));
+                    } else {
+                        block.addStatement(first.clone());
                     }
+                } else {
+                    // Switch STATEMENT or throw: no yield needed
+                    block.addStatement(first.clone());
+                }
+
+                statements.clear();
+                statements.add(block);
+            } else if (entry.getType() == SwitchEntry.Type.BLOCK) {
+                // Arrow-case with block: case X -> { ... }
+                if (first instanceof BlockStmt) {
+                    BlockStmt existingBlock = (BlockStmt) first;
+                    instrumentBlock(existingBlock);
+                }
+            } else {
+                // Colon-case: case X: stmt; — insert R.inc before first statement
+                if (isExecutableStatement(first)) {
+                    FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
+                    FullStatementInfo stmtInfo = session.addStatement(
+                            new ContextSetImpl(), region, 0,
+                            LanguageConstruct.Builtin.STATEMENT);
+                    int stmtIndex = stmtInfo.getDataIndex();
+                    statements.add(0,
+                            StaticJavaParser.parseStatement(
+                                    recorderPrefix + INC_PREFIX + stmtIndex + INC_SUFFIX));
                 }
             }
             super.visit(entry, arg);
@@ -807,9 +847,10 @@ public class AstInstrumenter {
                 }
             }
 
-            // Scan entire block for lambdas nested inside expressions
-            // (method args, return values, etc.) that instrumentBlock can't reach
+            // Scan entire block for constructs nested inside expressions
+            // that instrumentBlock can't reach (lambdas, method refs, switch expressions)
             instrumentNestedLambdas(block);
+            instrumentNestedSwitchExpressions(block);
         }
 
         /**
@@ -836,6 +877,18 @@ public class AstInstrumenter {
                     node.findAll(MethodReferenceExpr.class)) {
                 if (!isInsideLambdaIncWrapper(methodRef)) {
                     instrumentMethodReference(methodRef);
+                }
+            }
+        }
+
+        /**
+         * Scans for SwitchExpr nodes inside expressions (return values, assignments, etc.)
+         * and instruments their entries.
+         */
+        private void instrumentNestedSwitchExpressions(Node node) {
+            for (SwitchExpr switchExpr : node.findAll(SwitchExpr.class)) {
+                for (SwitchEntry entry : switchExpr.getEntries()) {
+                    visit(entry, null);
                 }
             }
         }

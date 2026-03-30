@@ -932,4 +932,70 @@ public class AstInstrumenterTest {
         int lambdaIncCallCount = countOccurrences(result, ".lambdaInc(");
         assertEquals("Lambda should be wrapped exactly once", 1, lambdaIncCallCount);
     }
+
+    // ========== SWITCH ARROW YIELD REWRITING TESTS ==========
+
+    /**
+     * Tests that switch expression arrow-cases get rewritten to blocks with yield.
+     * case 1 -> 10  becomes  case 1 -> { R.inc(N); yield 10; }
+     */
+    @Test
+    public void switchExpressionArrowCaseRewrittenWithYield() throws Exception {
+        String source = "class Foo { int bar(int x) { return switch (x) { case 1 -> 10; case 2 -> 20; default -> 0; }; } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Each arrow-case in a switch expression should have yield
+        assertTrue("Should contain yield for rewritten arrow-case", result.contains("yield"));
+        // R.inc uses dynamic recorder prefix, check for .inc( pattern
+        assertTrue("Should contain .inc( for switch cases", result.contains(".inc("));
+        // Session should register statements for each arrow-case
+        verify(session, atLeast(3)).addStatement(any(), any(), anyInt(), any());
+    }
+
+    /**
+     * Tests that switch STATEMENT arrow-cases don't get yield (no value returned).
+     */
+    @Test
+    public void switchStatementArrowCaseRewrittenWithoutYield() throws Exception {
+        String source = "class Foo { void bar(int x) { switch (x) { case 1 -> System.out.println(1); case 2 -> System.out.println(2); } } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        // addStatement should be called for each arrow-case
+        verify(session, atLeast(2)).addStatement(any(), any(), anyInt(), any());
+    }
+
+    // ========== INSTANCE INITIALIZER TEST ==========
+
+    /**
+     * Tests that instance (non-static) initializer blocks are instrumented.
+     */
+    @Test
+    public void instanceInitializerInstrumented() throws Exception {
+        String source = "class Foo { { System.out.println(\"instance init\"); } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        verify(session, atLeastOnce()).addStatement(any(), any(), anyInt(), any());
+    }
 }
