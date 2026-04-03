@@ -11,9 +11,12 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.InitializerDeclaration;
+import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
@@ -88,6 +91,7 @@ public class AstInstrumenter {
     private static final String LAMBDA_INC_METHOD = "lambdaI" + "nc";
     private static final String VARIABLE_DECLARATOR = "VariableD" + "eclarator";
     private static final String ASSIGN_EXPR = "AssignE" + "xpr";
+    private static final String TEST_EXCEPTION_VAR = "__CLR_t";
 
     private AstInstrumenter() {}
 
@@ -535,6 +539,51 @@ public class AstInstrumenter {
                 int methodIndex = methodInfo.getDataIndex();
                 body.getStatements().addFirst(
                         StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + methodIndex + INC_SUFFIX));
+
+                // Wrap test methods with globalSliceStart/End
+                if (isTest) {
+                    String recorderBase = extractRecorderBase();
+                    String recorderSuffix = extractRecorderSuffix();
+                    int testIndex = methodInfo.getDataIndex();
+                    String methodName = method.getNameAsString();
+
+                    // Move existing statements into a try block
+                    NodeList<Statement> originalStmts = new NodeList<>(body.getStatements());
+                    body.getStatements().clear();
+
+                    // Create the try-catch-finally wrapper
+                    BlockStmt tryBlock = new BlockStmt();
+                    tryBlock.addStatement(StaticJavaParser.parseStatement(
+                            recorderPrefix + ".globalSliceStart(getClass().getName()," + testIndex + INC_SUFFIX));
+                    originalStmts.forEach(tryBlock::addStatement);
+
+                    // Catch block: record failure and rethrow
+                    BlockStmt catchBlock = new BlockStmt();
+                    catchBlock.addStatement(StaticJavaParser.parseStatement(
+                            buildGlobalSliceEndStatement(methodName, testIndex, 0, TEST_EXCEPTION_VAR)));
+                    catchBlock.addStatement(StaticJavaParser.parseStatement("throw " + TEST_EXCEPTION_VAR + ";"));
+
+                    CatchClause catchClause = new CatchClause(
+                            new Parameter(
+                                    new ClassOrInterfaceType(null, "Throwable"), TEST_EXCEPTION_VAR),
+                            catchBlock);
+
+                    // Finally block: record success
+                    BlockStmt finallyBlock = new BlockStmt();
+                    finallyBlock.addStatement(StaticJavaParser.parseStatement(
+                            buildGlobalSliceEndStatement(methodName, testIndex, 1, "null")));
+
+                    TryStmt tryStmt = new TryStmt(
+                            tryBlock,
+                            new NodeList<>(catchClause),
+                            finallyBlock);
+
+                    body.addStatement(tryStmt);
+                }
+
+                // Recurse into nested type declarations (anonymous classes, local classes)
+                // that instrumentBlock cannot reach
+                instrumentNestedClasses(body);
             });
 
             if (end != null) {
@@ -573,6 +622,9 @@ public class AstInstrumenter {
             body.getStatements().add(insertPos,
                     StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + ctorIndex + INC_SUFFIX));
 
+            // Recurse into nested type declarations (anonymous classes, local classes)
+            instrumentNestedClasses(body);
+
             if (end != null) {
                 session.exitMethod(end.line, end.column);
             }
@@ -592,7 +644,8 @@ public class AstInstrumenter {
             BlockStmt body = initDecl.getBody();
             instrumentBlock(body);
 
-            // Don't call super.visit — instrumentBlock handles children
+            // Recurse into nested type declarations (anonymous classes, local classes)
+            instrumentNestedClasses(body);
         }
 
         // ========== LAMBDA INSTRUMENTATION ==========
@@ -821,7 +874,24 @@ public class AstInstrumenter {
                     instrumentBlock(((SynchronizedStmt) stmt).getBody());
                     i++;
                 } else if (stmt instanceof LabeledStmt) {
-                    // Unwrap and process the inner statement on next iteration
+                    Statement inner = ((LabeledStmt) stmt).getStatement();
+                    if (inner instanceof IfStmt) {
+                        instrumentIf((IfStmt) inner);
+                    } else if (inner instanceof WhileStmt) {
+                        instrumentLoopBody(((WhileStmt) inner).getBody());
+                    } else if (inner instanceof ForStmt) {
+                        instrumentLoopBody(((ForStmt) inner).getBody());
+                    } else if (inner instanceof DoStmt) {
+                        instrumentLoopBody(((DoStmt) inner).getBody());
+                    } else if (inner instanceof ForEachStmt) {
+                        instrumentLoopBody(((ForEachStmt) inner).getBody());
+                    } else if (inner instanceof SwitchStmt) {
+                        for (SwitchEntry entry : ((SwitchStmt) inner).getEntries()) {
+                            visit(entry, null);
+                        }
+                    } else if (inner instanceof BlockStmt) {
+                        instrumentBlock((BlockStmt) inner);
+                    }
                     i++;
                 } else if (stmt instanceof BlockStmt) {
                     instrumentBlock((BlockStmt) stmt);
@@ -851,6 +921,34 @@ public class AstInstrumenter {
             // that instrumentBlock can't reach (lambdas, method refs, switch expressions)
             instrumentNestedLambdas(block);
             instrumentNestedSwitchExpressions(block);
+        }
+
+        /**
+         * Scans a node's subtree for nested ClassOrInterfaceDeclaration nodes
+         * (local classes) and ObjectCreationExpr with anonymous class bodies,
+         * and visits them.
+         */
+        private void instrumentNestedClasses(Node node) {
+            // Handle local classes
+            for (ClassOrInterfaceDeclaration nestedClass : node.findAll(ClassOrInterfaceDeclaration.class)) {
+                visit(nestedClass, null);
+            }
+            // Handle anonymous classes
+            for (ObjectCreationExpr objCreation : node.findAll(ObjectCreationExpr.class)) {
+                if (objCreation.getAnonymousClassBody().isPresent()) {
+                    // Visit the anonymous class as if it were a class declaration
+                    // The visitor will process its methods
+                    for (BodyDeclaration<?> member : objCreation.getAnonymousClassBody().get()) {
+                        if (member instanceof MethodDeclaration) {
+                            visit((MethodDeclaration) member, null);
+                        } else if (member instanceof ConstructorDeclaration) {
+                            visit((ConstructorDeclaration) member, null);
+                        } else if (member instanceof InitializerDeclaration) {
+                            visit((InitializerDeclaration) member, null);
+                        }
+                    }
+                }
+            }
         }
 
         /**
@@ -959,6 +1057,7 @@ public class AstInstrumenter {
                     new ContextSetImpl(),
                     region, true, 0,
                     LanguageConstruct.Builtin.BRANCH);
+            if (branchInfo == null) return;
 
             int trueIndex = branchInfo.getDataIndex();
             int falseIndex = trueIndex + 1;
@@ -1019,6 +1118,7 @@ public class AstInstrumenter {
                     new ContextSetImpl(),
                     region, true, 0,
                     LanguageConstruct.Builtin.BRANCH);
+            if (branchInfo == null) return;
 
             int branchIndex = branchInfo.getDataIndex();
             if (body instanceof BlockStmt) {
@@ -1026,6 +1126,25 @@ public class AstInstrumenter {
                 instrumentBlock(block);
                 block.getStatements().addFirst(
                         StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + branchIndex + INC_SUFFIX));
+            } else {
+                // Braceless loop body: wrap in block with R.inc
+                BlockStmt wrapper = new BlockStmt();
+                wrapper.addStatement(
+                        StaticJavaParser.parseStatement(recorderPrefix + INC_PREFIX + branchIndex + INC_SUFFIX));
+                wrapper.addStatement(body.clone());
+                // Replace the body on the parent loop
+                if (body.getParentNode().isPresent()) {
+                    Node parent = body.getParentNode().get();
+                    if (parent instanceof WhileStmt) {
+                        ((WhileStmt) parent).setBody(wrapper);
+                    } else if (parent instanceof ForStmt) {
+                        ((ForStmt) parent).setBody(wrapper);
+                    } else if (parent instanceof DoStmt) {
+                        ((DoStmt) parent).setBody(wrapper);
+                    } else if (parent instanceof ForEachStmt) {
+                        ((ForEachStmt) parent).setBody(wrapper);
+                    }
+                }
             }
         }
 
@@ -1142,6 +1261,13 @@ public class AstInstrumenter {
             return ctx;
         }
 
+        private String buildGlobalSliceEndStatement(String methodName, int testIndex, int passedFlag, String exceptionVar) {
+            String recorderBase = extractRecorderBase();
+            return recorderPrefix + ".globalSliceEnd(getClass().getName(),\"" + methodName + "\","
+                    + recorderBase + "." + CloverNames.CLOVER_TEST_NAME_SNIFFER + ".getTestName(),"
+                    + testIndex + "," + passedFlag + "," + exceptionVar + INC_SUFFIX;
+        }
+
         private boolean isExecutableStatement(Statement stmt) {
             return stmt.isExpressionStmt()
                     || stmt.isReturnStmt()
@@ -1197,32 +1323,28 @@ public class AstInstrumenter {
         @Override
         public void visit(MethodDeclaration method, Void arg) {
             method.getBody().ifPresent(body -> {
-                // Method entry
+                // Instrument statements/branches FIRST, then add method entry R.inc
+                // (avoids re-instrumentation of the R.inc itself)
+                instrumentBlock(body);
                 int methodIndex = indexCounter.getAndIncrement();
                 body.getStatements().addFirst(parseInc(methodIndex));
-
-                // Instrument statements and branches inside the body
-                instrumentBlock(body);
             });
-            // Don't call super.visit — instrumentBlock handles statement-level children.
-            // Switch expression arrow-cases inside return/expression statements are
-            // handled by the session-aware visitor in production.
         }
 
         @Override
         public void visit(ConstructorDeclaration ctor, Void arg) {
             BlockStmt body = ctor.getBody();
-            int ctorIndex = indexCounter.getAndIncrement();
 
-            // Insert after explicit constructor invocation (super/this) if present
+            // Instrument statements/branches FIRST, then add constructor entry R.inc
+            instrumentBlock(body);
+
+            int ctorIndex = indexCounter.getAndIncrement();
             List<Statement> stmts = body.getStatements();
             int insertPos = 0;
             if (!stmts.isEmpty() && stmts.get(0) instanceof ExplicitConstructorInvocationStmt) {
                 insertPos = 1;
             }
             body.getStatements().add(insertPos, parseInc(ctorIndex));
-
-            instrumentBlock(body);
         }
 
         @Override
@@ -1287,6 +1409,26 @@ public class AstInstrumenter {
                     i++;
                 } else if (stmt instanceof SynchronizedStmt) {
                     instrumentBlock(((SynchronizedStmt) stmt).getBody());
+                    i++;
+                } else if (stmt instanceof LabeledStmt) {
+                    Statement inner = ((LabeledStmt) stmt).getStatement();
+                    if (inner instanceof IfStmt) {
+                        instrumentIf((IfStmt) inner);
+                    } else if (inner instanceof WhileStmt) {
+                        instrumentLoopBody(((WhileStmt) inner).getBody());
+                    } else if (inner instanceof ForStmt) {
+                        instrumentLoopBody(((ForStmt) inner).getBody());
+                    } else if (inner instanceof DoStmt) {
+                        instrumentLoopBody(((DoStmt) inner).getBody());
+                    } else if (inner instanceof ForEachStmt) {
+                        instrumentLoopBody(((ForEachStmt) inner).getBody());
+                    } else if (inner instanceof SwitchStmt) {
+                        for (SwitchEntry entry : ((SwitchStmt) inner).getEntries()) {
+                            visit(entry, null);
+                        }
+                    } else if (inner instanceof BlockStmt) {
+                        instrumentBlock((BlockStmt) inner);
+                    }
                     i++;
                 } else if (stmt instanceof BlockStmt) {
                     instrumentBlock((BlockStmt) stmt);
@@ -1359,8 +1501,25 @@ public class AstInstrumenter {
                 BlockStmt block = (BlockStmt) body;
                 block.getStatements().addFirst(parseInc(branchIndex));
                 instrumentBlock(block);
+            } else {
+                // Braceless loop body: wrap in block with R.inc
+                BlockStmt wrapper = new BlockStmt();
+                wrapper.addStatement(parseInc(branchIndex));
+                wrapper.addStatement(body.clone());
+                // Replace the body on the parent loop
+                if (body.getParentNode().isPresent()) {
+                    Node parent = body.getParentNode().get();
+                    if (parent instanceof WhileStmt) {
+                        ((WhileStmt) parent).setBody(wrapper);
+                    } else if (parent instanceof ForStmt) {
+                        ((ForStmt) parent).setBody(wrapper);
+                    } else if (parent instanceof DoStmt) {
+                        ((DoStmt) parent).setBody(wrapper);
+                    } else if (parent instanceof ForEachStmt) {
+                        ((ForEachStmt) parent).setBody(wrapper);
+                    }
+                }
             }
-            // Braceless loop bodies are already wrapped by the braceless-body pass
         }
 
         private Statement parseInc(int index) {
