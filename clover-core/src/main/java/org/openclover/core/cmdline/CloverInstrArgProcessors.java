@@ -239,6 +239,24 @@ public class CloverInstrArgProcessors {
         }
     };
 
+    public static ArgProcessor<JavaInstrumentationConfig> InstrAst = new ArgProcessor<JavaInstrumentationConfig>() {
+        @Override
+        public boolean matches(String[] args, int i) {
+            return args[i].equals("--instrast");
+        }
+
+        @Override
+        public int process(String[] args, int i, JavaInstrumentationConfig cfg) {
+            cfg.setUseAstInstrumenter(true);
+            return i;
+        }
+
+        @Override
+        public String help() {
+            return "    --instrast\t\t\t Use AST-based instrumenter (LexicalPreservingPrinter) instead of text-based.";
+        }
+    };
+
     public static ArgProcessor<JavaInstrumentationConfig> SourceLevelArg = new ArgProcessor<JavaInstrumentationConfig>() {
         @Override
         public boolean matches(String[] args, int i) {

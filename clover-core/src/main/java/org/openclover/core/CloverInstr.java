@@ -40,6 +40,7 @@ public class CloverInstr {
             CloverInstrArgProcessors.Encoding,
             CloverInstrArgProcessors.InstrLevel,
             CloverInstrArgProcessors.InstrLambda,
+            CloverInstrArgProcessors.InstrAst,
             CloverInstrArgProcessors.SourceLevelArg,
             CloverInstrArgProcessors.RecordTestResults,
             CloverInstrArgProcessors.DontQualifyJavaLang,
