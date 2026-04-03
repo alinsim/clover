@@ -1425,4 +1425,31 @@ public class AstInstrumenterTest {
         assertTrue("lambdaInc should be generated", result.contains("lambdaInc"));
         assertParseable(result);
     }
+
+    /**
+     * TEST_NAME_SNIFFER in globalSliceEnd must not be prefixed with the recorder inner class.
+     * It's a field on the OUTER class, same as lambdaInc.
+     */
+    @Test
+    public void testSnifferNotPrefixedWithRecorderClass() throws Exception {
+        String source = "import org.junit.Test;\n"
+                + "class FooTest {\n"
+                + "  @Test public void testSomething() { System.out.println(1); }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        assertTrue("Test method must have globalSliceEnd", result.contains("globalSliceEnd"));
+        // The sniffer must NOT be accessed via the recorder inner class
+        assertFalse("TEST_NAME_SNIFFER must not be on recorder inner class: " + result,
+                result.matches("(?s).*__CLR[^.]*\\.__CLR[^.]*_TEST_NAME_SNIFFER.*"));
+        assertParseable(result);
+    }
 }

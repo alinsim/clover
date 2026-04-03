@@ -1322,8 +1322,9 @@ public class AstInstrumenter {
 
         private String buildGlobalSliceEndStatement(String methodName, int testIndex, int passedFlag, String exceptionVar) {
             String recorderBase = extractRecorderBase();
+            // TEST_NAME_SNIFFER is on the OUTER class, not the recorder inner class
             return recorderPrefix + ".globalSliceEnd(getClass().getName(),\"" + methodName + "\","
-                    + recorderBase + "." + CloverNames.CLOVER_TEST_NAME_SNIFFER + ".getTestName(),"
+                    + CloverNames.CLOVER_TEST_NAME_SNIFFER + ".getTestName(),"
                     + testIndex + "," + passedFlag + "," + exceptionVar + INC_SUFFIX;
         }
 
