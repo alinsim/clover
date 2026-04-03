@@ -1452,4 +1452,84 @@ public class AstInstrumenterTest {
                 result.matches("(?s).*__CLR[^.]*\\.__CLR[^.]*_TEST_NAME_SNIFFER.*"));
         assertParseable(result);
     }
+
+    // ========== SCOPE EDGE CASES ==========
+
+    /**
+     * Interface with default methods must produce parseable output.
+     * Interfaces can't have static initializer blocks in Java < 16.
+     * The recorder should NOT be injected into interfaces that are the only
+     * top-level type — or it must use a compatible form.
+     */
+    @Test
+    public void interfaceWithDefaultMethodProducesParseableOutput() throws Exception {
+        String source = "public interface Greeter {\n"
+                + "    default String greet(String name) { return \"Hello \" + name; }\n"
+                + "    void wave();\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Must be valid Java — this is the key assertion
+        assertParseable(result);
+    }
+
+    /**
+     * Annotation type must produce parseable output.
+     * Annotations can't have static inner classes.
+     */
+    @Test
+    public void annotationTypeProducesParseableOutput() throws Exception {
+        String source = "public @interface MyAnnotation {\n"
+                + "    String value() default \"\";\n"
+                + "    int count() default 0;\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        assertParseable(result);
+    }
+
+    /**
+     * Non-static inner class must NOT get its own recorder.
+     * Non-static inner classes can't have static members.
+     */
+    @Test
+    public void nonStaticInnerClassMethodsInstrumentedWithoutOwnRecorder() throws Exception {
+        String source = "class Outer {\n"
+                + "    class Inner {\n"
+                + "        void doWork() { System.out.println(1); }\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Inner class methods should be instrumented (R.inc calls)
+        assertTrue("Inner class methods should be instrumented", result.contains(".inc("));
+        // Only ONE recorder class should exist (on Outer, not on Inner)
+        int recorderCount = countOccurrences(result, "static class __CLR");
+        assertEquals("Only one recorder class should exist (on outer class)", 1, recorderCount);
+        assertParseable(result);
+    }
 }
