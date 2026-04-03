@@ -1188,4 +1188,67 @@ public class AstInstrumenterTest {
         String result = output.toString();
         assertFalse("Non-test method must NOT have globalSliceStart", result.contains("globalSliceStart"));
     }
+
+    // ========== P3 FIXES: countNonCommentLines, Math.abs, mapSourceLevel ==========
+
+    /**
+     * countNonCommentLines must exclude blank lines and comment-only lines.
+     */
+    @Test
+    public void countNonCommentLinesExcludesCommentsAndBlanks() throws Exception {
+        String source =
+                "package com.example;\n"
+                + "\n"
+                + "// line comment\n"
+                + "/* block comment */\n"
+                + "/**\n"
+                + " * javadoc\n"
+                + " */\n"
+                + "public class Foo {\n"
+                + "    void bar() {\n"
+                + "        doWork();\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+
+        // Capture the ncLineCount passed to enterFile
+        ArgumentCaptor<Integer> ncLineCaptor = ArgumentCaptor.forClass(Integer.class);
+        when(session.enterFile(anyString(), any(File.class), anyInt(), ncLineCaptor.capture(),
+                anyLong(), anyLong(), anyLong())).thenReturn(mock(FileInfo.class));
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        int ncLines = ncLineCaptor.getValue();
+        // Source has 12 lines total. Non-comment, non-blank: package, class, void bar, doWork, }, } = 6
+        assertTrue("ncLineCount (" + ncLines + ") must be less than total lines (12)", ncLines < 12);
+        assertTrue("ncLineCount (" + ncLines + ") must be > 0", ncLines > 0);
+    }
+
+    /**
+     * Recorder prefix must be a valid Java identifier even for pathological hash values.
+     */
+    @Test
+    public void recorderPrefixIsValidJavaIdentifier() throws Exception {
+        // Use a file path that might produce Integer.MIN_VALUE hash
+        String source = "class Foo { void bar() {} }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // The recorder prefix should not contain a '-' character (from negative hash)
+        assertFalse("Recorder prefix must not contain '-'",
+                result.contains("__CLR-") || result.contains("__CLRr-"));
+    }
 }

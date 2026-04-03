@@ -283,12 +283,37 @@ public class AstInstrumenter {
         return count;
     }
 
+    private static final String BLOCK_COMMENT_END = "*/";
+
     /**
-     * Counts non-comment lines (simplified version).
+     * Counts non-comment, non-blank lines in the source.
      */
     private static int countNonCommentLines(String source) {
-        // Simplified implementation
-        return countLines(source);
+        int ncCount = 0;
+        boolean inBlockComment = false;
+        for (String line : source.split("\n", -1)) {
+            String trimmed = line.trim();
+            if (inBlockComment) {
+                if (trimmed.contains(BLOCK_COMMENT_END)) {
+                    inBlockComment = false;
+                }
+                continue;
+            }
+            if (trimmed.isEmpty() || trimmed.startsWith("//")) {
+                continue;
+            }
+            if (trimmed.startsWith("/*")) {
+                if (!trimmed.contains(BLOCK_COMMENT_END)) {
+                    inBlockComment = true;
+                }
+                continue;
+            }
+            if (trimmed.startsWith("*") && !trimmed.startsWith(BLOCK_COMMENT_END)) {
+                continue;
+            }
+            ncCount++;
+        }
+        return ncCount;
     }
 
     /**
@@ -331,7 +356,7 @@ public class AstInstrumenter {
         int fileHash = source.getSourceFileLocation().getAbsolutePath().hashCode();
         long timestamp = System.currentTimeMillis();
         String prefix = CloverNames.CLOVER_RECORDER_PREFIX +
-                        Integer.toString(Math.abs(fileHash), 36) +
+                        Integer.toString(fileHash & 0x7FFFFFFF, 36) +
                         Long.toString(timestamp, 36);
         return prefix + "." + CloverNames.RECORDER_FIELD_NAME;
     }
