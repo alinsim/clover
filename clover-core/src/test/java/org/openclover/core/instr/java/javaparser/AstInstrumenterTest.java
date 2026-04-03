@@ -958,10 +958,8 @@ public class AstInstrumenterTest {
         AstInstrumenter.instrument(instrSource, output, session, config, null, null);
 
         String result = output.toString();
-        // Each arrow-case in a switch expression should have yield
-        assertTrue("Should contain yield for rewritten arrow-case", result.contains("yield"));
-        // R.inc uses dynamic recorder prefix, check for .inc( pattern
-        assertTrue("Should contain .inc( for switch cases", result.contains(".inc("));
+        // Switch expression arrow cases use incRet() to preserve expression form
+        assertTrue("Should contain incRet for switch expression arrow-cases", result.contains("incRet("));
         // Session should register statements for each arrow-case
         verify(session, atLeast(3)).addStatement(any(), any(), anyInt(), any());
     }
@@ -1531,5 +1529,72 @@ public class AstInstrumenterTest {
         int recorderCount = countOccurrences(result, "static class __CLR");
         assertEquals("Only one recorder class should exist (on outer class)", 1, recorderCount);
         assertParseable(result);
+    }
+
+    // ========== SWITCH EXPRESSION ARROW-CASE EXPRESSION PRESERVATION ==========
+
+    /**
+     * Switch expression arrow cases must preserve expression form to avoid VerifyError.
+     * Rewriting "case X -> expr" to "case X -> { yield expr; }" changes javac's type
+     * inference, causing VerifyError at runtime in type-sensitive contexts.
+     * Instead, use incRet(N, expr) to keep the expression form.
+     */
+    @Test
+    public void switchExpressionArrowCasePreservesExpressionForm() throws Exception {
+        String source = "class Foo {\n"
+                + "    String bar(int code) {\n"
+                + "        return switch (code) {\n"
+                + "            case 400 -> \"BAD_REQUEST\";\n"
+                + "            case 401 -> \"UNAUTHORIZED\";\n"
+                + "            default -> \"UNKNOWN\";\n"
+                + "        };\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Must NOT contain yield — expression form should be preserved
+        assertFalse("Switch expression arrow cases must not use yield (block form): " + result,
+                result.contains("yield"));
+        // Must contain incRet or similar expression-preserving wrapper
+        assertTrue("Switch expression arrow cases must use expression wrapper",
+                result.contains("incRet(") || result.contains("inc("));
+        assertParseable(result);
+    }
+
+    /**
+     * Switch STATEMENT arrow cases CAN use block form safely — only switch EXPRESSIONS
+     * have the VerifyError issue.
+     */
+    @Test
+    public void switchStatementArrowCaseCanUseBlockForm() throws Exception {
+        String source = "class Foo {\n"
+                + "    void bar(int code) {\n"
+                + "        switch (code) {\n"
+                + "            case 400 -> System.out.println(\"bad\");\n"
+                + "            default -> System.out.println(\"ok\");\n"
+                + "        }\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Switch statements don't need yield — block rewriting is safe
+        assertParseable(result);
+        assertTrue("Switch statement cases should be instrumented", result.contains(".inc("));
     }
 }

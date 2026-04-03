@@ -31,7 +31,6 @@ import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.SwitchEntry;
 import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
-import com.github.javaparser.ast.stmt.YieldStmt;
 import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
@@ -848,35 +847,31 @@ public class AstInstrumenter {
 
             if (entry.getType() == SwitchEntry.Type.EXPRESSION
                     || entry.getType() == SwitchEntry.Type.THROWS_STATEMENT) {
-                // Arrow expression/throw case: rewrite to block
                 FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
                 FullStatementInfo stmtInfo = session.addStatement(
                         new ContextSetImpl(), region, 1,
                         LanguageConstruct.Builtin.STATEMENT);
                 int stmtIndex = stmtInfo.getDataIndex();
 
-                BlockStmt block = new BlockStmt();
-                block.addStatement(StaticJavaParser.parseStatement(
-                        recorderPrefix + INC_PREFIX + stmtIndex + INC_SUFFIX));
-
-                if (isInSwitchExpr && !(first instanceof ThrowStmt)) {
-                    // Switch EXPRESSION: need yield
-                    // Extract the expression from the ExpressionStmt
-                    if (first.isExpressionStmt()) {
-                        Expression expr = first.asExpressionStmt().getExpression();
-                        block.addStatement(new YieldStmt(expr.clone()));
-                    } else {
-                        block.addStatement(first.clone());
-                    }
+                if (isInSwitchExpr && !(first instanceof ThrowStmt) && first.isExpressionStmt()) {
+                    // Switch EXPRESSION arrow case: preserve expression form with incRet()
+                    // to avoid VerifyError from block-form yield changing javac's type inference.
+                    Expression expr = first.asExpressionStmt().getExpression();
+                    MethodCallExpr wrapper = new MethodCallExpr(
+                            "incRet",
+                            new IntegerLiteralExpr(String.valueOf(stmtIndex)),
+                            expr.clone());
+                    expr.replace(wrapper);
                 } else {
-                    // Switch STATEMENT or throw: no yield needed
+                    // Switch STATEMENT arrow case, or throw: rewrite to block (safe, no type inference)
+                    BlockStmt block = new BlockStmt();
+                    block.addStatement(StaticJavaParser.parseStatement(
+                            recorderPrefix + INC_PREFIX + stmtIndex + INC_SUFFIX));
                     block.addStatement(first.clone());
+                    statements.clear();
+                    statements.add(block);
+                    entry.setType(SwitchEntry.Type.BLOCK);
                 }
-
-                statements.clear();
-                statements.add(block);
-                // Change type from EXPRESSION to BLOCK so LPP doesn't emit trailing semicolon
-                entry.setType(SwitchEntry.Type.BLOCK);
             } else if (entry.getType() == SwitchEntry.Type.BLOCK) {
                 // Arrow-case with block: case X -> { ... }
                 if (first instanceof BlockStmt) {

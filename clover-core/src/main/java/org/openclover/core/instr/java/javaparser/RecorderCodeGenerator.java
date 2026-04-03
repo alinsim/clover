@@ -169,6 +169,14 @@ public class RecorderCodeGenerator {
             instrString.append(generateLambdaIncMethod(config.recorderBase, config.recorderSuffix, config.javaLangPrefix));
         }
 
+        // add incRet() helper for switch expression arrow-case instrumentation
+        // Preserves expression form: case X -> incRet(N, expr) instead of case X -> { yield expr; }
+        // This avoids VerifyError caused by block-form yield changing javac's type inference.
+        instrString.append("@java.lang.SuppressWarnings(\"unchecked\") ");
+        instrString.append("public static <T> T incRet(final int i, final T v){");
+        instrString.append(config.recorderBase).append(".").append(config.recorderSuffix).append(".inc(i);");
+        instrString.append("return v;}");
+
         // add extra test sniffer field
         instrString.append(generateTestSnifferField(config.isSpockTestClass, config.isParameterizedJUnit, config.isJUnit5Parameterized));
 
