@@ -1347,4 +1347,52 @@ public class AstInstrumenterTest {
         // Must also be valid Java
         assertParseable(result);
     }
+
+    // ========== ENUM RECORDER INJECTION ==========
+
+    /**
+     * Enums with methods must have the recorder class injected.
+     * The recorder references (__CLR.R.inc) won't compile without the declaration.
+     */
+    @Test
+    public void enumWithMethodsGetsRecorderInjected() throws Exception {
+        String source = "public enum Color {\n"
+                + "    RED(\"red\"), BLUE(\"blue\");\n"
+                + "    private final String label;\n"
+                + "    Color(String label) { this.label = label; }\n"
+                + "    public String getLabel() { return label; }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        assertTrue("Enum must have recorder class", result.contains("CoverageRecorder"));
+        assertTrue("Enum methods must be instrumented", result.contains(".inc("));
+        assertParseable(result);
+    }
+
+    /**
+     * Enums with only constants (no methods) should still compile.
+     */
+    @Test
+    public void enumWithOnlyConstantsCompiles() throws Exception {
+        String source = "public enum Direction { NORTH, SOUTH, EAST, WEST }\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        assertParseable(result);
+    }
 }

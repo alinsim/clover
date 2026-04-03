@@ -216,24 +216,32 @@ public class AstInstrumenter {
 
     /**
      * Injects the recorder class into the first top-level type using RecorderCodeGenerator.
+     * Handles both classes/interfaces and enums.
      */
     private static void injectRecorderClass(CompilationUnit cu, SessionAwareAstVisitor visitor,
                                             JavaInstrumentationConfig config) {
-        // Find first top-level class/interface/enum
+        int maxDataIndex = visitor.session.getCurrentFileMaxIndex();
+        String recorderCode = visitor.generateRecorderCode(maxDataIndex, config);
+
+        // Parse recorder code into AST members
+        String tempClass = "class TempWrapper { " + recorderCode + " }";
+        CompilationUnit tempCu = StaticJavaParser.parse(tempClass);
+        ClassOrInterfaceDeclaration tempWrapper = tempCu.findFirst(ClassOrInterfaceDeclaration.class)
+                .orElseThrow(() -> new RuntimeException("Failed to parse recorder code"));
+        NodeList<BodyDeclaration<?>> recorderMembers = tempWrapper.getMembers();
+
+        // Try class/interface first
         for (ClassOrInterfaceDeclaration clazz : cu.findAll(ClassOrInterfaceDeclaration.class)) {
             if (clazz.isTopLevelType()) {
-                int maxDataIndex = visitor.session.getCurrentFileMaxIndex();
-                String recorderCode = visitor.generateRecorderCode(maxDataIndex, config);
+                recorderMembers.forEach(member -> clazz.addMember(member.clone()));
+                return;
+            }
+        }
 
-                // RecorderCodeGenerator produces multiple members (recorder class + lambdaInc method + test sniffer).
-                // Parse as a temporary class and extract its members.
-                String tempClass = "class TempWrapper { " + recorderCode + " }";
-                CompilationUnit tempCu = StaticJavaParser.parse(tempClass);
-                ClassOrInterfaceDeclaration tempWrapper = tempCu.findFirst(ClassOrInterfaceDeclaration.class)
-                        .orElseThrow(() -> new RuntimeException("Failed to parse recorder code"));
-
-                // Add all members from the wrapper to the target class
-                tempWrapper.getMembers().forEach(member -> clazz.addMember(member.clone()));
+        // Try enum — enums with methods/constructors need the recorder too
+        for (EnumDeclaration enumDecl : cu.findAll(EnumDeclaration.class)) {
+            if (enumDecl.isTopLevelType()) {
+                recorderMembers.forEach(member -> enumDecl.addMember(member.clone()));
                 return;
             }
         }
