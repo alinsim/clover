@@ -10,11 +10,14 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -62,6 +65,14 @@ public class BytecodeInstrumenterTest {
     private static final String METHOD_VALUES = "values";
     private static final String METHOD_VALUEOF = "valueOf";
     private static final String METHOD_DESC_STRING_RETURN = "()Ljava/lang/String;";
+    private static final String METHOD_NAME_HANDLE = "handle";
+    private static final String METHOD_DESC_THROWABLE_VOID = "(Ljava/lang/Throwable;)V";
+    private static final String JAVA_LANG_THROWABLE = "java/lang/Throwable";
+    private static final String JAVA_LANG_RUNTIME_EXCEPTION = "java/lang/RuntimeException";
+    private static final String EXCEPTION_TYPE = "com/example/MyException";
+    private static final String EXCEPTION_PKG_DIR = "com/example";
+    private static final String EXCEPTION_CLASS_FILE = "MyException.class";
+    private static final String MSG_PKG_DIR_CREATED = "Package directory created";
 
     @Test
     public void instrumentInjectsIncCallForSameClassWithRecorder() {
@@ -575,6 +586,209 @@ public class BytecodeInstrumenterTest {
 
         cw.visitEnd();
         return cw.toByteArray();
+    }
+
+    @Test
+    public void instrumentComputesCorrectStackFramesForProjectClassHierarchy() throws Exception {
+        // Reproduce: VerifyError when Phase 2 COMPUTE_FRAMES computes common superclass
+        // of a project exception (e.g., ServiceException) and Throwable.
+        // Class.forName() fails for the project class, getCommonSuperClass falls back to
+        // Object, corrupting the stack frame. The JVM verifier then rejects
+        // invokevirtual Throwable.getMessage() because the local is typed as Object.
+        //
+        // Fix: resolve class hierarchy from classDir using ASM ClassReader.
+
+        // Arrange: Write MyException.class (extends RuntimeException) to a temp directory
+        File tempDir = Files.createTempDirectory("clover-frame-test").toFile();
+        try {
+            File pkgDir = new File(tempDir, EXCEPTION_PKG_DIR);
+            assertTrue(MSG_PKG_DIR_CREATED, pkgDir.mkdirs());
+            byte[] exceptionBytes = generateExceptionClass(EXCEPTION_TYPE, JAVA_LANG_RUNTIME_EXCEPTION);
+            Files.write(new File(pkgDir, EXCEPTION_CLASS_FILE).toPath(), exceptionBytes);
+
+            // Generate a class with Throwable/MyException merge pattern
+            // Simulates: Throwable failure = t; if (failure == null) failure = new MyException();
+            byte[] handlerBytes = generateClassWithThrowableMerge(EXCEPTION_TYPE);
+
+            Map<String, Integer> methodIndices = new HashMap<>();
+            methodIndices.put(METHOD_NAME_HANDLE + METHOD_DESC_THROWABLE_VOID, 42);
+
+            BytecodeInstrumenter.RecorderConfig config = new BytecodeInstrumenter.RecorderConfig(
+                TEST_DB_PATH, 1234L, 5678L, 100, tempDir
+            );
+            BytecodeInstrumenter instrumenter = new BytecodeInstrumenter(config);
+
+            // Act
+            byte[] result = instrumenter.instrument(handlerBytes, methodIndices);
+
+            // Assert: instrumentation succeeded
+            assertNotNull(MSG_INSTRUMENTED_NOT_NULL, result);
+
+            // Assert: frame at merge point has Throwable, not Object.
+            // COMPUTE_FRAMES must resolve MyException -> RuntimeException -> ... -> Throwable
+            // to compute LUB(Throwable, MyException) = Throwable
+            String mergeLocalType = getLocalFrameType(
+                    result, METHOD_NAME_HANDLE, METHOD_DESC_THROWABLE_VOID, 2);
+            assertEquals(
+                "Stack frame merge should resolve to Throwable, not Object. "
+                    + "getCommonSuperClass must resolve project classes from classDir.",
+                JAVA_LANG_THROWABLE, mergeLocalType);
+        } finally {
+            deleteDirectory(tempDir);
+        }
+    }
+
+    @Test
+    public void instrumentSurvivesCorruptClassFileInClassDir() throws Exception {
+        // A corrupt .class file in classDir must not crash the instrumentation.
+        // ClassReader(corruptBytes) throws ArrayIndexOutOfBoundsException (RuntimeException),
+        // which is NOT caught by the IOException handler in resolveSuperclass().
+        // The uncaught exception propagates out of getCommonSuperClass, crashing COMPUTE_FRAMES.
+        //
+        // Fix: catch Exception (not just IOException) in resolveSuperclass, and wrap
+        // resolveCommonSuperClass in a safety net inside getCommonSuperClass.
+
+        File tempDir = Files.createTempDirectory("clover-corrupt-test").toFile();
+        try {
+            File pkgDir = new File(tempDir, EXCEPTION_PKG_DIR);
+            assertTrue(MSG_PKG_DIR_CREATED, pkgDir.mkdirs());
+            // Write a corrupt .class file (too short for ClassReader to parse)
+            Files.write(new File(pkgDir, EXCEPTION_CLASS_FILE).toPath(), new byte[]{0, 1, 2, 3});
+
+            // Generate a class with Throwable/MyException merge pattern
+            byte[] handlerBytes = generateClassWithThrowableMerge(EXCEPTION_TYPE);
+
+            Map<String, Integer> methodIndices = new HashMap<>();
+            methodIndices.put(METHOD_NAME_HANDLE + METHOD_DESC_THROWABLE_VOID, 42);
+
+            BytecodeInstrumenter.RecorderConfig config = new BytecodeInstrumenter.RecorderConfig(
+                TEST_DB_PATH, 1234L, 5678L, 100, tempDir
+            );
+            BytecodeInstrumenter instrumenter = new BytecodeInstrumenter(config);
+
+            // Act — must not throw despite corrupt class file
+            byte[] result = instrumenter.instrument(handlerBytes, methodIndices);
+
+            // Assert: instrumentation succeeded (falls back to Object — acceptable)
+            assertNotNull("Should instrument even with corrupt .class in classDir", result);
+
+            // Frame will have Object (can't resolve corrupt class), but instrumentation didn't crash
+            String mergeLocalType = getLocalFrameType(
+                    result, METHOD_NAME_HANDLE, METHOD_DESC_THROWABLE_VOID, 2);
+            assertEquals(
+                "Corrupt class should fall back to Object gracefully",
+                JAVA_LANG_OBJECT, mergeLocalType);
+        } finally {
+            deleteDirectory(tempDir);
+        }
+    }
+
+    /**
+     * Generates a simple exception class extending the given superclass.
+     */
+    private byte[] generateExceptionClass(String className, String superName) {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, className, null, superName, null);
+
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, INIT, METHOD_DESC_VOID, null, null);
+        mv.visitCode();
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, superName, INIT, METHOD_DESC_VOID, false);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(1, 1);
+        mv.visitEnd();
+
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /**
+     * Generates a class with a method that has a Throwable/exceptionType merge point.
+     * Simulates the FailureHandler pattern where a Throwable variable is reassigned
+     * to a project-specific exception subclass in a branch. Uses COMPUTE_MAXS with
+     * manual frames so the class file is valid before instrumentation.
+     */
+    private byte[] generateClassWithThrowableMerge(String exceptionType) {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, TEST_CLASS_NAME, null, JAVA_LANG_OBJECT, null);
+
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, METHOD_NAME_HANDLE,
+                METHOD_DESC_THROWABLE_VOID, null, null);
+        mv.visitCode();
+
+        // Throwable failure = t;
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        mv.visitVarInsn(Opcodes.ASTORE, 2);
+
+        // if (failure != null) goto endLabel
+        Label endLabel = new Label();
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitJumpInsn(Opcodes.IFNONNULL, endLabel);
+
+        // failure = new MyException()
+        mv.visitTypeInsn(Opcodes.NEW, exceptionType);
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, exceptionType, INIT, METHOD_DESC_VOID, false);
+        mv.visitVarInsn(Opcodes.ASTORE, 2);
+
+        // endLabel: merge point — LUB(Throwable, MyException) should be Throwable
+        mv.visitLabel(endLabel);
+        mv.visitFrame(Opcodes.F_FULL, 3,
+                new Object[]{TEST_CLASS_NAME, JAVA_LANG_THROWABLE, JAVA_LANG_THROWABLE},
+                0, null);
+
+        // failure.getMessage()
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JAVA_LANG_THROWABLE, "getMessage",
+                METHOD_DESC_STRING_RETURN, false);
+        mv.visitInsn(Opcodes.POP);
+
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(2, 3);
+        mv.visitEnd();
+
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /**
+     * Extracts the type of a specific local variable from stack map frames in a method.
+     * Uses EXPAND_FRAMES so all frames are reported as F_NEW with complete local arrays.
+     * Returns the type from the first frame that defines the requested local index.
+     */
+    private String getLocalFrameType(byte[] classBytes, String methodName, String descriptor, int localIndex) {
+        String[] result = new String[]{null};
+        new ClassReader(classBytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] exc) {
+                if (name.equals(methodName) && desc.equals(descriptor)) {
+                    return new MethodVisitor(Opcodes.ASM9) {
+                        @Override
+                        public void visitFrame(int type, int numLocal, Object[] local, int numStack, Object[] stack) {
+                            if (result[0] == null && numLocal > localIndex && local[localIndex] instanceof String) {
+                                result[0] = (String) local[localIndex];
+                            }
+                        }
+                    };
+                }
+                return null;
+            }
+        }, ClassReader.EXPAND_FRAMES);
+        return result[0];
+    }
+
+    private void deleteDirectory(File dir) {
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    deleteDirectory(f);
+                } else {
+                    f.delete();
+                }
+            }
+        }
+        dir.delete();
     }
 
     /**

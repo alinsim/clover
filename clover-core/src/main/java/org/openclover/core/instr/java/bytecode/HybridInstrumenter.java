@@ -136,7 +136,8 @@ public class HybridInstrumenter {
                 registryFile.getAbsolutePath(),
                 dbVersion,
                 cfgBits,
-                totalMaxIndex
+                totalMaxIndex,
+                classDir
         );
         BytecodeInstrumenter instrumenter = new BytecodeInstrumenter(recorderConfig);
 

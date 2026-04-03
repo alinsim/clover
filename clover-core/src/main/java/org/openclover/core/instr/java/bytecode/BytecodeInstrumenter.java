@@ -6,7 +6,11 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class BytecodeInstrumenter {
 
@@ -22,6 +26,7 @@ public class BytecodeInstrumenter {
     private static final String GET_RECORDER_DESC = "(Ljava/lang/String;JJI[Lorg_openclover_runtime/CloverProfile;[Ljava/lang/String;)Lorg_openclover_runtime/CoverageRecorder;";
     private static final String CLINIT_METHOD_NAME = "<clinit>";
     private static final String CLINIT_METHOD_DESC = "()V";
+    private static final String JAVA_LANG_OBJECT = "java/lang/Object";
 
     /**
      * Configuration needed for initializing recorder in generated-only classes.
@@ -31,12 +36,18 @@ public class BytecodeInstrumenter {
         public final long dbVersion;
         public final long cfgBits;
         public final int maxDataIndex;
+        public final File classDir;
 
         public RecorderConfig(String dbPath, long dbVersion, long cfgBits, int maxDataIndex) {
+            this(dbPath, dbVersion, cfgBits, maxDataIndex, null);
+        }
+
+        public RecorderConfig(String dbPath, long dbVersion, long cfgBits, int maxDataIndex, File classDir) {
             this.dbPath = dbPath;
             this.dbVersion = dbVersion;
             this.cfgBits = cfgBits;
             this.maxDataIndex = maxDataIndex;
+            this.classDir = classDir;
         }
     }
 
@@ -75,16 +86,22 @@ public class BytecodeInstrumenter {
 
         // Second pass: transform
         // COMPUTE_FRAMES requires class hierarchy resolution via getCommonSuperClass().
-        // The default implementation uses Class.forName() which fails when target classes
-        // (Vert.x, SLF4J, etc.) aren't on the plugin's classloader. Override to fall back
-        // to java/lang/Object — conservative but always valid for the JVM verifier.
+        // The default implementation uses Class.forName() which fails for project classes
+        // not on the plugin's classloader. When that happens, resolve the hierarchy by
+        // reading .class files from the project's classDir with ASM ClassReader.
+        // Fall back to java/lang/Object only when classDir is unavailable or the class
+        // file cannot be found.
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_FRAMES) {
             @Override
             protected String getCommonSuperClass(String type1, String type2) {
                 try {
                     return super.getCommonSuperClass(type1, type2);
                 } catch (RuntimeException e) {
-                    return "java/lang/Object";
+                    try {
+                        return resolveCommonSuperClass(type1, type2);
+                    } catch (RuntimeException fallback) {
+                        return JAVA_LANG_OBJECT;
+                    }
                 }
             }
         };
@@ -202,6 +219,82 @@ public class BytecodeInstrumenter {
 
         // PUTSTATIC className.__CLR$R
         mv.visitFieldInsn(Opcodes.PUTSTATIC, className, PHASE2_RECORDER_FIELD, COVERAGE_RECORDER_DESC);
+    }
+
+    /**
+     * Resolves the common superclass of two types by walking their superclass chains.
+     * Uses Class.forName() for JDK/classpath types and ASM ClassReader for project
+     * classes found in config.classDir. Falls back to java/lang/Object if resolution fails.
+     */
+    private String resolveCommonSuperClass(String type1, String type2) {
+        if (JAVA_LANG_OBJECT.equals(type1) || JAVA_LANG_OBJECT.equals(type2)) {
+            return JAVA_LANG_OBJECT;
+        }
+
+        if (config.classDir == null) {
+            return JAVA_LANG_OBJECT;
+        }
+
+        Set<String> ancestors1 = collectSuperclassChain(type1);
+        String current = type2;
+        while (current != null) {
+            if (ancestors1.contains(current)) {
+                return current;
+            }
+            current = resolveSuperclass(current);
+        }
+        return JAVA_LANG_OBJECT;
+    }
+
+    /**
+     * Collects the full superclass chain for a type, ending at java/lang/Object.
+     */
+    private Set<String> collectSuperclassChain(String type) {
+        Set<String> chain = new LinkedHashSet<>();
+        String current = type;
+        while (current != null) {
+            chain.add(current);
+            if (JAVA_LANG_OBJECT.equals(current)) {
+                break;
+            }
+            current = resolveSuperclass(current);
+        }
+        chain.add(JAVA_LANG_OBJECT);
+        return chain;
+    }
+
+    /**
+     * Resolves the direct superclass of a type. Tries Class.forName() first (for JDK
+     * and classpath types), then falls back to reading the .class file from classDir.
+     */
+    private String resolveSuperclass(String type) {
+        if (JAVA_LANG_OBJECT.equals(type)) {
+            return null;
+        }
+
+        // Try classpath first (JDK classes, libraries already loaded)
+        try {
+            Class<?> cls = Class.forName(type.replace('/', '.'), false, getClass().getClassLoader());
+            Class<?> superCls = cls.getSuperclass();
+            return superCls != null ? superCls.getName().replace('.', '/') : null;
+        } catch (ClassNotFoundException ignored) {
+            // Fall through to classDir resolution
+        }
+
+        // Try reading .class file from project classDir
+        if (config.classDir != null) {
+            File classFile = new File(config.classDir, type + ".class");
+            if (classFile.isFile()) {
+                try {
+                    byte[] bytes = Files.readAllBytes(classFile.toPath());
+                    return new ClassReader(bytes).getSuperName();
+                } catch (Exception ignored) {
+                    // IO error or corrupt class file — fall through to null
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
