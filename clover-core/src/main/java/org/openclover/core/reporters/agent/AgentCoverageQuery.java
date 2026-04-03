@@ -151,7 +151,7 @@ public class AgentCoverageQuery {
 
     private List<FullFileInfo> getAllFiles() {
         ProjectInfo project = database.getRegistry().getProject();
-        List<FileInfo> files = project.getFiles((HasMetricsFilter) null);
+        List<FileInfo> files = project.getFiles(HasMetricsFilter.ACCEPT_ALL);
         List<FullFileInfo> result = new ArrayList<>(files.size());
         for (FileInfo fi : files) {
             result.add((FullFileInfo) fi);

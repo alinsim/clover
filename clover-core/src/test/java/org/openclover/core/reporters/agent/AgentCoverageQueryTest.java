@@ -24,6 +24,7 @@ import org.openclover.runtime.registry.format.RegAccessMode;
 
 import java.io.File;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -165,9 +166,14 @@ public class AgentCoverageQueryTest {
         session.close();
         registry.saveAndOverwriteFile();
 
-        // Get the instrumented file info
-        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles((HasMetricsFilter) null).get(0);
-        List<StatementInfo> statements = fileInfo.getStatements();
+        // Get the instrumented file info — statements live inside methods, not at file level
+        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles(HasMetricsFilter.ACCEPT_ALL).get(0);
+        List<StatementInfo> statements = new ArrayList<>();
+        for (ClassInfo classInfo : fileInfo.getClasses()) {
+            for (MethodInfo methodInfo : classInfo.getMethods()) {
+                statements.addAll(methodInfo.getStatements());
+            }
+        }
 
         // Simulate coverage: first 2 statements covered, third uncovered
         int maxIndex = session.getCurrentFileMaxIndex();
@@ -222,7 +228,7 @@ public class AgentCoverageQueryTest {
         registry.saveAndOverwriteFile();
 
         // Get the instrumented file info
-        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles((HasMetricsFilter) null).get(0);
+        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles(HasMetricsFilter.ACCEPT_ALL).get(0);
 
         // Get branches from the method
         BranchInfo branch = null;
@@ -301,7 +307,7 @@ public class AgentCoverageQueryTest {
         registry.saveAndOverwriteFile();
 
         // Get the instrumented file info
-        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles((HasMetricsFilter) null).get(0);
+        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles(HasMetricsFilter.ACCEPT_ALL).get(0);
         List<StatementInfo> statements = fileInfo.getStatements();
 
         // Simulate coverage for first method only
@@ -359,7 +365,7 @@ public class AgentCoverageQueryTest {
         InMemPerTestCoverage perTestCoverage = new InMemPerTestCoverage(maxIndex);
         CoverageData coverageData = new CoverageData(0, hitCounts, perTestCoverage);
 
-        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles((HasMetricsFilter) null).get(0);
+        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles(HasMetricsFilter.ACCEPT_ALL).get(0);
         registry.setCoverageData(coverageData);
         fileInfo.setDataProvider(coverageData);
         registry.getProject().setDataProvider(coverageData);
@@ -402,7 +408,7 @@ public class AgentCoverageQueryTest {
         InMemPerTestCoverage perTestCoverage = new InMemPerTestCoverage(maxIndex);
         CoverageData coverageData = new CoverageData(0, hitCounts, perTestCoverage);
 
-        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles((HasMetricsFilter) null).get(0);
+        FullFileInfo fileInfo = (FullFileInfo) registry.getProject().getFiles(HasMetricsFilter.ACCEPT_ALL).get(0);
         registry.setCoverageData(coverageData);
         fileInfo.setDataProvider(coverageData);
         registry.getProject().setDataProvider(coverageData);
