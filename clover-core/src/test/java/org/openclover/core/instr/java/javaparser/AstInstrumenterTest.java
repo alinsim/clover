@@ -1,5 +1,7 @@
 package org.openclover.core.instr.java.javaparser;
 
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -240,7 +242,10 @@ public class AstInstrumenterTest {
 
     private void assertParseable(String source) {
         try {
-            StaticJavaParser.parse(source);
+            ParserConfiguration config = new ParserConfiguration()
+                    .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
+            new JavaParser(config).parse(source).getResult()
+                    .orElseThrow(() -> new Exception("Parse returned no result"));
         } catch (Exception e) {
             throw new AssertionError("Output is not parseable Java:\n" + source, e);
         }
@@ -1250,5 +1255,63 @@ public class AstInstrumenterTest {
         // The recorder prefix should not contain a '-' character (from negative hash)
         assertFalse("Recorder prefix must not contain '-'",
                 result.contains("__CLR-") || result.contains("__CLRr-"));
+    }
+
+    // ========== NORTHFOX VALIDATION FIXES ==========
+
+    /**
+     * Try-with-resources Tracker must be a variable declaration, not a bare new expression.
+     * Java requires try resources to be variable declarations or references to final variables.
+     */
+    @Test
+    public void tryWithResourcesTrackerIsVariableDeclaration() throws Exception {
+        String source = "class Foo { void bar() throws Exception {"
+                + " try (java.io.InputStream is = new java.io.FileInputStream(\"f\")) {"
+                + " is.read(); } } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Must NOT have bare "new ...Tracker(" as a resource — must be a variable declaration
+        assertFalse("Tracker must not be a bare new expression in try resources",
+                result.matches("(?s).*try\\s*\\([^)]*[;]\\s*new [^)]*Tracker\\([^)]*\\)\\s*\\).*"));
+        // Must have a variable declaration pattern: Type varName = new ...Tracker(
+        assertTrue("Tracker must be a variable declaration in try resources",
+                result.contains("Tracker") && result.contains("=") && result.contains("new"));
+        assertParseable(result);
+    }
+
+    /**
+     * Switch expression arrow-case rewritten to block must NOT have stray semicolons after }.
+     * case X -> { yield expr; } must not be followed by ;
+     */
+    @Test
+    public void switchExpressionArrowCaseNoStraySemicolon() throws Exception {
+        String source = "class Foo { String bar(int x) { return switch (x) {"
+                + " case 1 -> \"one\";"
+                + " case 2 -> \"two\";"
+                + " default -> \"other\";"
+                + " }; } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // After rewriting to blocks, there should be no };  pattern (closing brace + semicolon)
+        // inside the switch expression's case entries
+        assertFalse("No stray semicolons after arrow-case blocks: " + result,
+                result.matches("(?s).*yield[^}]*\\}\\s*;\\s*case.*"));
+        assertParseable(result);
     }
 }

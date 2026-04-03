@@ -173,8 +173,8 @@ public class AstInstrumenter {
             // Inject recorder class using RecorderCodeGenerator
             injectRecorderClass(cu, visitor, config);
 
-            // Output via LexicalPreservingPrinter
-            String instrumented = MARKER_COMMENT + "\n" + LexicalPreservingPrinter.print(cu);
+            // Output via LexicalPreservingPrinter with post-processing for LPP edge cases
+            String instrumented = MARKER_COMMENT + "\n" + postProcessLppOutput(LexicalPreservingPrinter.print(cu));
             output.write(instrumented);
             output.flush();
 
@@ -265,6 +265,22 @@ public class AstInstrumenter {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Post-processes LPP output to fix known edge cases.
+     * LPP preserves original token semicolons even when statements are replaced
+     * with blocks, producing invalid "};case" sequences in switch expressions.
+     */
+    private static String postProcessLppOutput(String output) {
+        // Remove stray semicolons after closing braces in switch arrow-case entries.
+        // Pattern: "}\n;" or "};" followed by whitespace+case/default
+        // Remove stray semicolons between switch arrow-case blocks.
+        // LPP produces: "}\n; case" — the ; is a remnant of the original "case X -> expr;"
+        output = output.replaceAll("\\}\n; (case |default )", "}\n$1");
+        // Also handle the last entry before the switch closing: "}\n; };"
+        output = output.replaceAll("\\}\n; \\};", "}};");
+        return output;
     }
 
     /**
@@ -771,10 +787,12 @@ public class AstInstrumenter {
                                 LanguageConstruct.Builtin.STATEMENT);
                         int closeIndex = closeInfo.getDataIndex();
 
-                        // Add Tracker as a resource: new RecorderBase.Tracker(closeIndex)
+                        // Add Tracker as a variable declaration resource:
+                        // Type varName = new RecorderBase.Tracker(closeIndex)
                         String recorderBase = extractRecorderBase();
-                        String trackerExpr = "new " + recorderBase + ".Tracker(" + closeIndex + ")";
-                        tryStmt.getResources().add(StaticJavaParser.parseExpression(trackerExpr));
+                        String trackerDecl = recorderBase + ".Tracker __CLR_rt" + closeIndex
+                                + " = new " + recorderBase + ".Tracker(" + closeIndex + ")";
+                        tryStmt.getResources().add(StaticJavaParser.parseVariableDeclarationExpr(trackerDecl));
                     }
                 }
             }
@@ -842,6 +860,8 @@ public class AstInstrumenter {
 
                 statements.clear();
                 statements.add(block);
+                // Change type from EXPRESSION to BLOCK so LPP doesn't emit trailing semicolon
+                entry.setType(SwitchEntry.Type.BLOCK);
             } else if (entry.getType() == SwitchEntry.Type.BLOCK) {
                 // Arrow-case with block: case X -> { ... }
                 if (first instanceof BlockStmt) {
