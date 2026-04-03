@@ -933,9 +933,9 @@ public class AstInstrumenterTest {
         AstInstrumenter.instrument(instrSource, output, session, config, null, null);
 
         String result = output.toString();
-        // Count lambdaInc INVOCATIONS (not the method definition in the recorder class)
-        // Invocations look like: .lambdaInc(  — the method definition looks like: lambdaInc(final
-        int lambdaIncCallCount = countOccurrences(result, ".lambdaInc(");
+        // Count lambdaInc INVOCATIONS (not the method definition in the recorder class).
+        // Invocations: "lambdaInc(N," — the definition has "lambdaInc(final"
+        int lambdaIncCallCount = countOccurrences(result, "lambdaInc(0,");
         assertEquals("Lambda should be wrapped exactly once", 1, lambdaIncCallCount);
     }
 
@@ -1393,6 +1393,36 @@ public class AstInstrumenterTest {
         AstInstrumenter.instrument(instrSource, output, session, config, null, null);
 
         String result = output.toString();
+        assertParseable(result);
+    }
+
+    // ========== LAMBDA INC SCOPE FIX ==========
+
+    /**
+     * lambdaInc must be called without the recorder class prefix.
+     * It's a static method on the OUTER class, not inside the __CLR inner class.
+     */
+    @Test
+    public void lambdaIncCalledWithoutRecorderPrefix() throws Exception {
+        String source = "class Foo {\n"
+                + "    java.util.function.Predicate<String> p = s -> true;\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // lambdaInc should NOT be called on the recorder inner class (__CLR.lambdaInc)
+        // It should be called as a bare method or on the outer class
+        assertFalse("lambdaInc must not be called on recorder inner class",
+                result.matches("(?s).*__CLR[^.]*\\.lambdaInc.*"));
+        // But lambdaInc should still be present
+        assertTrue("lambdaInc should be generated", result.contains("lambdaInc"));
         assertParseable(result);
     }
 }

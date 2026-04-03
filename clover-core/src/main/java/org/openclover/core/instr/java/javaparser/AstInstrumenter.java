@@ -747,13 +747,12 @@ public class AstInstrumenter {
                 String recorderBase = extractRecorderBase();
 
                 // Build: lambdaInc(methodIndex, <original lambda>, stmtIndex)
+                // lambdaInc is a static method on the OUTER class, not inside the __CLR inner class
                 MethodCallExpr wrapper = new MethodCallExpr(
-                        StaticJavaParser.parseExpression(recorderBase),
                         LAMBDA_INC_METHOD,
-                        new NodeList<>(
-                                new IntegerLiteralExpr(String.valueOf(methodIndex)),
-                                lambda.clone(),
-                                new IntegerLiteralExpr(String.valueOf(stmtIndex))));
+                        new IntegerLiteralExpr(String.valueOf(methodIndex)),
+                        lambda.clone(),
+                        new IntegerLiteralExpr(String.valueOf(stmtIndex)));
                 lambda.replace(wrapper);
             }
             // Expression lambdas in unsafe contexts (method args, casts): skip wrapping
@@ -1084,13 +1083,12 @@ public class AstInstrumenter {
                 int stmtIndex = stmtInfo.getDataIndex();
                 String recorderBase = extractRecorderBase();
 
+                // lambdaInc is a static method on the OUTER class, not the __CLR inner class
                 MethodCallExpr wrapper = new MethodCallExpr(
-                        StaticJavaParser.parseExpression(recorderBase),
                         LAMBDA_INC_METHOD,
-                        new NodeList<>(
-                                new IntegerLiteralExpr(String.valueOf(methodIndex)),
-                                methodRef.clone(),
-                                new IntegerLiteralExpr(String.valueOf(stmtIndex))));
+                        new IntegerLiteralExpr(String.valueOf(methodIndex)),
+                        methodRef.clone(),
+                        new IntegerLiteralExpr(String.valueOf(stmtIndex)));
                 methodRef.replace(wrapper);
             }
 
