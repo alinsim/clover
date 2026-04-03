@@ -276,10 +276,18 @@ public class AstInstrumenter {
         // Remove stray semicolons after closing braces in switch arrow-case entries.
         // Pattern: "}\n;" or "};" followed by whitespace+case/default
         // Remove stray semicolons between switch arrow-case blocks.
-        // LPP produces: "}\n; case" — the ; is a remnant of the original "case X -> expr;"
-        output = output.replaceAll("\\}\n; (case |default )", "}\n$1");
-        // Also handle the last entry before the switch closing: "}\n; };"
-        output = output.replaceAll("\\}\n; \\};", "}};");
+        // LPP preserves the original "case X -> expr;" semicolons after rewriting to blocks.
+        // Pattern: "}\n;\n" or "}\n;  \ncase" — semicolon alone on its own line after a block.
+        // Remove stray semicolons after switch arrow-case blocks.
+        // Two LPP patterns depending on single-line vs multi-line source:
+        //   Single-line: "}\n; case"   (semicolon on same line as case)
+        //   Multi-line:  "}\n;\n  case" (semicolon on its own line)
+        String braceGroup = "}\n$1";
+        output = output.replaceAll("\\}\n;\\s*\n(\\s*(?:case |default ))", braceGroup);
+        output = output.replaceAll("\\}\n; (case |default )", braceGroup);
+        // Handle last entry before switch closing brace
+        output = output.replaceAll("\\}\n;\\s*\n(\\s*\\};)", braceGroup);
+        output = output.replaceAll("\\}\n; (\\};)", braceGroup);
         return output;
     }
 

@@ -1314,4 +1314,37 @@ public class AstInstrumenterTest {
                 result.matches("(?s).*yield[^}]*\\}\\s*;\\s*case.*"));
         assertParseable(result);
     }
+
+    /**
+     * Multi-line switch expression arrow-case — matches real-world FailureHandler.java pattern
+     * where LPP puts the semicolon on its own line with indentation.
+     */
+    @Test
+    public void multiLineSwitchExpressionArrowCaseNoStraySemicolon() throws Exception {
+        String source = "class Foo {\n"
+                + "    String bar(int code) {\n"
+                + "        return switch (code) {\n"
+                + "            case 400 -> \"BAD_REQUEST\";\n"
+                + "            case 401 -> \"UNAUTHORIZED\";\n"
+                + "            case 404 -> \"NOT_FOUND\";\n"
+                + "            default -> \"UNKNOWN\";\n"
+                + "        };\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // No stray semicolons between case blocks — any }...;...case pattern is invalid
+        assertFalse("No stray semicolons after arrow-case blocks",
+                result.matches("(?s).*yield[^}]*\\}\\s*;\\s*case.*"));
+        // Must also be valid Java
+        assertParseable(result);
+    }
 }
