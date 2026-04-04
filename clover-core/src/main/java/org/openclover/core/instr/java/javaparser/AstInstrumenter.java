@@ -91,6 +91,9 @@ public class AstInstrumenter {
     private static final String LAMBDA_INC_METHOD = "lambdaI" + "nc";
     private static final String VARIABLE_DECLARATOR = "VariableD" + "eclarator";
     private static final String ASSIGN_EXPR = "AssignE" + "xpr";
+    private static final String QUOTE = "\"";
+    private static final String UNKNOWN_CLASS = "UnknownClass";
+    private static final String GET_CLASS_NAME = "getClass().getName()";
     private static final String TEST_EXCEPTION_VAR = "__CLR_t";
 
     private AstInstrumenter() {}
@@ -637,6 +640,13 @@ public class AstInstrumenter {
                     int testIndex = methodInfo.getDataIndex();
                     String methodName = method.getNameAsString();
 
+                    // For static test methods, getClass() is not available — use class name literal
+                    String runtimeTypeExpr = method.isStatic()
+                            ? QUOTE + method.findAncestor(ClassOrInterfaceDeclaration.class)
+                                    .map(c -> c.getFullyQualifiedName().orElse(c.getNameAsString()))
+                                    .orElse(UNKNOWN_CLASS) + QUOTE
+                            : GET_CLASS_NAME;
+
                     // Move existing statements into a try block
                     NodeList<Statement> originalStmts = new NodeList<>(body.getStatements());
                     body.getStatements().clear();
@@ -644,13 +654,13 @@ public class AstInstrumenter {
                     // Create the try-catch-finally wrapper
                     BlockStmt tryBlock = new BlockStmt();
                     tryBlock.addStatement(StaticJavaParser.parseStatement(
-                            recorderPrefix + ".globalSliceStart(getClass().getName()," + testIndex + INC_SUFFIX));
+                            recorderPrefix + ".globalSliceStart(" + runtimeTypeExpr + "," + testIndex + INC_SUFFIX));
                     originalStmts.forEach(tryBlock::addStatement);
 
                     // Catch block: record failure and rethrow
                     BlockStmt catchBlock = new BlockStmt();
                     catchBlock.addStatement(StaticJavaParser.parseStatement(
-                            buildGlobalSliceEndStatement(methodName, testIndex, 0, TEST_EXCEPTION_VAR)));
+                            buildGlobalSliceEndStatement(runtimeTypeExpr, methodName, testIndex, 0, TEST_EXCEPTION_VAR)));
                     catchBlock.addStatement(StaticJavaParser.parseStatement("throw " + TEST_EXCEPTION_VAR + ";"));
 
                     CatchClause catchClause = new CatchClause(
@@ -661,7 +671,7 @@ public class AstInstrumenter {
                     // Finally block: record success
                     BlockStmt finallyBlock = new BlockStmt();
                     finallyBlock.addStatement(StaticJavaParser.parseStatement(
-                            buildGlobalSliceEndStatement(methodName, testIndex, 1, "null")));
+                            buildGlobalSliceEndStatement(runtimeTypeExpr, methodName, testIndex, 1, "null")));
 
                     TryStmt tryStmt = new TryStmt(
                             tryBlock,
@@ -1349,10 +1359,9 @@ public class AstInstrumenter {
             return ctx;
         }
 
-        private String buildGlobalSliceEndStatement(String methodName, int testIndex, int passedFlag, String exceptionVar) {
-            String recorderBase = extractRecorderBase();
-            // TEST_NAME_SNIFFER is on the OUTER class, not the recorder inner class
-            return recorderPrefix + ".globalSliceEnd(getClass().getName(),\"" + methodName + "\","
+        private String buildGlobalSliceEndStatement(String runtimeTypeExpr, String methodName,
+                                                     int testIndex, int passedFlag, String exceptionVar) {
+            return recorderPrefix + ".globalSliceEnd(" + runtimeTypeExpr + ",\"" + methodName + "\","
                     + CloverNames.CLOVER_TEST_NAME_SNIFFER + ".getTestName(),"
                     + testIndex + "," + passedFlag + "," + exceptionVar + INC_SUFFIX;
         }
