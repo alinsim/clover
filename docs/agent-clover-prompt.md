@@ -151,6 +151,8 @@ Each suggestion includes:
 
 6. **Lines vs statements.** Multiple statements can be on one line (`a = 1; b = 2;`). Clover counts statements, not lines. The "uncovered lines" in the JSON are deduplicated — each line appears once even if it has multiple statements.
 
+7. **Source-only branches.** The `uncoveredBranches` array only includes branches from source-level instrumentation (if/else, while, for, ternary). Bytecode-only branches from Lombok-generated code (equals, hashCode, builders) are NOT included. This is intentional — you can't write a test targeting a bytecode-only branch since there's no source line to exercise. Focus on the branches shown.
+
 ---
 
 ## Decision Framework

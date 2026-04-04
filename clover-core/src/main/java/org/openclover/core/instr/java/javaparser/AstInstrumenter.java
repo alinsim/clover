@@ -664,7 +664,10 @@ public class AstInstrumenter {
                     String recorderBase = extractRecorderBase();
                     String recorderSuffix = extractRecorderSuffix();
                     int testIndex = methodInfo.getDataIndex();
-                    String methodName = method.getNameAsString();
+                    // Must be ClassName.methodName — resolve() requires a dot to find the method
+                    String enclosingClassName = method.findAncestor(ClassOrInterfaceDeclaration.class)
+                            .map(ClassOrInterfaceDeclaration::getNameAsString).orElse(UNKNOWN_CLASS);
+                    String methodName = enclosingClassName + "." + method.getNameAsString();
 
                     // For static test methods, getClass() is not available — use class name literal
                     String runtimeTypeExpr = method.isStatic()
