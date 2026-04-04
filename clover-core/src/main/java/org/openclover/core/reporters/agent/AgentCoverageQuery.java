@@ -109,7 +109,7 @@ public class AgentCoverageQuery {
     }
 
     /**
-     * Get project-level coverage summary.
+     * Get project-level coverage summary (combined app + test).
      */
     public CoverageSummary getProjectSummary() {
         ProjectInfo project = database.getRegistry().getProject();
@@ -119,6 +119,27 @@ public class AgentCoverageQuery {
         summary.metrics = createCoverageMetrics(metrics);
 
         return summary;
+    }
+
+    /**
+     * Get project coverage split into app (production), test, and combined sections.
+     * This prevents the common mistake of inflating coverage by including test source coverage.
+     */
+    public SplitCoverageSummary getProjectSummarySplit() {
+        SplitCoverageSummary split = new SplitCoverageSummary();
+
+        ProjectInfo appModel = database.getAppOnlyModel();
+        ProjectInfo testModel = database.getTestOnlyModel();
+        ProjectInfo fullModel = database.getFullModel();
+
+        split.app = createCoverageMetrics(
+                appModel != null ? (BlockMetrics) appModel.getMetrics() : null);
+        split.test = createCoverageMetrics(
+                testModel != null ? (BlockMetrics) testModel.getMetrics() : null);
+        split.combined = createCoverageMetrics(
+                fullModel != null ? (BlockMetrics) fullModel.getMetrics() : null);
+
+        return split;
     }
 
     /**
@@ -431,6 +452,13 @@ public class AgentCoverageQuery {
 
     private CoverageMetrics createCoverageMetrics(BlockMetrics metrics) {
         CoverageMetrics coverage = new CoverageMetrics();
+
+        if (metrics == null) {
+            coverage.statements = new MetricPair();
+            coverage.branches = new MetricPair();
+            coverage.methods = new MetricPair();
+            return coverage;
+        }
 
         coverage.statements = new MetricPair();
         coverage.statements.covered = metrics.getNumCoveredStatements();

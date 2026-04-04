@@ -6,21 +6,36 @@
 
 The feedback file has three sections: `summary`, `tests`, and `topUncovered`.
 
-### summary — Project-Level Metrics
+### summary — Project-Level Metrics (Split by Source Type)
 
 ```json
 "summary": {
-  "statements": { "covered": 6189, "total": 6964, "pct": 88.9 },
-  "branches":   { "covered": 640,  "total": 1152, "pct": 55.6 },
-  "methods":    { "covered": 1668, "total": 3190, "pct": 52.3 }
+  "app": {
+    "statements": { "covered": 1207, "total": 1946, "pct": 62.0 },
+    "branches":   { "covered": 538,  "total": 966,  "pct": 55.7 },
+    "methods":    { "covered": 837,  "total": 2194, "pct": 38.1 }
+  },
+  "test": {
+    "statements": { "covered": 4982, "total": 5018, "pct": 99.3 },
+    "branches":   { "covered": 102,  "total": 186,  "pct": 54.8 },
+    "methods":    { "covered": 831,  "total": 996,  "pct": 83.4 }
+  },
+  "combined": {
+    "statements": { "covered": 6189, "total": 6964, "pct": 88.9 },
+    "branches":   { "covered": 640,  "total": 1152, "pct": 55.6 },
+    "methods":    { "covered": 1668, "total": 3190, "pct": 52.3 }
+  }
 }
 ```
 
-**WARNING: These numbers include BOTH production AND test sources.** Test code is heavily self-covering (tests execute their own lines), so the statement percentage is inflated. To assess real coverage health, look at `topUncovered` (which lists production files only) or query specific production classes with `clover:uncovered -Dclass=X`.
+**Use `summary.app` for all coverage decisions.** This is the production code — the code that matters.
 
-**What matters:**
+- `summary.test` shows how well the test code itself is covered. Test statement coverage is naturally high (~99%) because tests execute their own lines. This is expected and not actionable.
+- `summary.combined` is the raw total (app + test). Rarely useful. It inflates statement coverage because test sources dominate.
+
+**What matters in `summary.app`:**
 - **Branch coverage** is the most honest metric. Statement coverage can be inflated by incidental execution. Branch coverage proves both sides of every `if`/`while`/`for` were tested.
-- **Method coverage** below 50% means large parts of the codebase have never been called by any test.
+- **Method coverage** below 50% means large parts of the production codebase have never been called by any test.
 - Don't chase 100%. Diminishing returns start around 80% for statements, 60% for branches.
 
 ### tests — Per-Test Summary
@@ -124,7 +139,7 @@ Each suggestion includes:
 
 ## Common Gotchas
 
-1. **Summary includes test sources.** The `summary.statements.pct` in the feedback file combines production + test code. Test files inflate coverage because they execute their own lines. Always drill into specific production classes for accurate numbers.
+1. **Use `summary.app`, not `summary.combined`.** The `summary.combined` section includes both production and test code. Test files inflate combined coverage because they execute their own lines. Always use `summary.app` for coverage decisions.
 
 2. **Stale data.** If `"stale": true` in the envelope, source files have been modified since the last test run. The coverage data is outdated. Re-run tests before making decisions.
 

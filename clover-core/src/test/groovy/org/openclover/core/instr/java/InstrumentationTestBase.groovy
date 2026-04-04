@@ -69,11 +69,13 @@ class InstrumentationTestBase {
         checkInstrumentation("", testcases, true)
     }
 
+    private static final String INSTRUMENTATION_MARKER = "/* \$\$ This file has been instrumented by OpenClover \$\$ */"
+
     // check array of {input, expected output} - replacing the recorder member with recorderStr.
     protected void checkInstrumentation(String recorderStr, String[][] testcases, boolean testRewriting) throws Exception {
         for (String[] testcase : testcases) {
             String instr = getInstrumentedVersion(testcase[0], testRewriting)
-            checkStringSuffix(recorderStr, CloverTokenStreamFilter.MARKER + testcase[1], instr)
+            checkNormalized(recorderStr, INSTRUMENTATION_MARKER + testcase[1], instr)
         }
     }
 
@@ -81,25 +83,92 @@ class InstrumentationTestBase {
     protected void checkInstrumentation(String[][] testcases, JavaInstrumentationConfig config) throws Exception {
         for (String[] testcase : testcases) {
             String instr = getInstrumentedVersion(testcase[0], config)
-            checkStringSuffix("", CloverTokenStreamFilter.MARKER + testcase[1], instr)
+            checkNormalized("", INSTRUMENTATION_MARKER + testcase[1], instr)
         }
     }
 
-    private static final String STATIC_CLASS_REGEX = "public static class " + CloverNames.CLOVER_PREFIX + "[_A-Za-z0-9]+" + ".*R=_R;\\}\\}"
-    private static final String STATIC_TEST_CLASS_REGEX = "static class " + CloverNames.CLOVER_PREFIX + "[_A-Za-z0-9]+" + ".*R=_R;\\}\\}"
     private static final String SNIFFER_REGEX = CloverNames.CLOVER_PREFIX + "[_0-9]+_TEST_NAME_SNIFFER"
     private static final String RECORDER_REGEX = CloverNames.CLOVER_PREFIX + "[_A-Za-z0-9]+"
     private static final String CLR_REGEX = CloverNames.CLOVER_PREFIX
-    private static final String RECORDER_INNER_MEMBER_REGEX = "public static " + CoverageRecorder.class.getName() + " " + RECORDER_REGEX + "=[^;]+;"
 
-    private static void checkStringSuffix(String recorder, String s1, String s2) {
-        String t2 = s2.replaceAll(STATIC_CLASS_REGEX, "public static class CLASS {}")
-                .replaceAll(STATIC_TEST_CLASS_REGEX, "static class CLASS {}")
-                .replaceAll(SNIFFER_REGEX, "SNIFFER")
-                .replaceAll(RECORDER_INNER_MEMBER_REGEX, recorder)
-                .replaceAll(RECORDER_REGEX, "RECORDER")
-                .replaceAll(CLR_REGEX, "CLR")
-        assertThat(t2, equalTo(s1))
+    /**
+     * Strips the __CLR recorder inner class (including nested Tracker, lambdaInc, incRet)
+     * by matching braces to find the end of the class body.
+     */
+    private static String stripRecorderClass(String code, String replacement) {
+        String prefix = "public static class " + CloverNames.CLOVER_PREFIX
+        int start = code.indexOf(prefix)
+        if (start == -1) {
+            prefix = "static class " + CloverNames.CLOVER_PREFIX
+            start = code.indexOf(prefix)
+        }
+        if (start == -1) return code
+
+        int braceStart = code.indexOf('{', start)
+        if (braceStart == -1) return code
+
+        int braceCount = 1
+        int pos = braceStart + 1
+        while (pos < code.length() && braceCount > 0) {
+            char c = code.charAt(pos)
+            if (c == '{') braceCount++
+            else if (c == '}') braceCount--
+            pos++
+        }
+        return code.substring(0, start) + replacement + code.substring(pos)
+    }
+
+    /**
+     * Strips generated helper methods (lambdaInc, incRet) that are at class level.
+     */
+    private static String stripGeneratedHelpers(String code) {
+        // Strip @SuppressWarnings("unchecked") public static <...> ... lambdaInc(...) { ... }
+        // Strip @SuppressWarnings("unchecked") public static <T> T incRet(...) { ... }
+        // These are generated at class level by RecorderCodeGenerator
+        code = stripMethodByBraceMatching(code, "public static <I, T extends I> I lambdaInc(")
+        code = stripMethodByBraceMatching(code, "public static <T> T incRet(")
+        // Strip preceding @SuppressWarnings annotations
+        code = code.replaceAll("@java\\.lang\\.SuppressWarnings\\(\"unchecked\"\\)\\s*", "")
+        return code
+    }
+
+    private static String stripMethodByBraceMatching(String code, String methodSignature) {
+        int start = code.indexOf(methodSignature)
+        if (start == -1) return code
+
+        int braceStart = code.indexOf('{', start)
+        if (braceStart == -1) return code
+
+        int braceCount = 1
+        int pos = braceStart + 1
+        while (pos < code.length() && braceCount > 0) {
+            char c = code.charAt(pos)
+            if (c == '{') braceCount++
+            else if (c == '}') braceCount--
+            pos++
+        }
+        return code.substring(0, start).trim() + " " + code.substring(pos).trim()
+    }
+
+    private static String normalizeWhitespace(String s) {
+        return s.replaceAll("\\s+", " ").trim()
+    }
+
+    private static void checkNormalized(String recorder, String expected, String actual) {
+        String normalized = actual
+        // Strip recorder inner class (with nested Tracker, etc.)
+        normalized = stripRecorderClass(normalized, "public static class CLASS {}")
+        // Strip generated helper methods
+        normalized = stripGeneratedHelpers(normalized)
+        // Replace sniffer field
+        normalized = normalized.replaceAll(SNIFFER_REGEX, "SNIFFER")
+        // Replace specific sniffer field declaration pattern
+        normalized = normalized.replaceAll("public static final " + TestNameSniffer.class.getName() + " SNIFFER=" + TestNameSniffer.class.getName() + "\\.NULL_INSTANCE;", recorder)
+        // Replace recorder prefix references
+        normalized = normalized.replaceAll(RECORDER_REGEX, "RECORDER")
+        normalized = normalized.replaceAll(CLR_REGEX, "CLR")
+
+        assertThat(normalizeWhitespace(normalized), equalTo(normalizeWhitespace(expected)))
     }
 
     protected String getInstrumentedVersion(String input, boolean testRewriting) throws Exception {

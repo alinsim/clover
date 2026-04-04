@@ -50,6 +50,9 @@ public class AgentJsonReporterTest {
     private static final String KEY_PCT = "pct";
     private static final String SCOPE_FULL = "full-suite";
     private static final String SCOPE_SINGLE = "single-test";
+    private static final String KEY_APP = "app";
+    private static final String KEY_TEST_SECTION = "test";
+    private static final String KEY_COMBINED = "combined";
     private static final String MUST_BE_PRESENT = " must be present";
     private static final String MUST_BE_IN_DATA = " must be in data";
     private static final String MUST_BE_IN_SUMMARY = " must be in summary";
@@ -108,14 +111,26 @@ public class AgentJsonReporterTest {
     }
 
     @Test
-    public void summaryHasStatementsBranchesMethods() throws Exception {
+    public void summaryHasAppTestAndCombinedSections() throws Exception {
         AgentJsonReporter reporter = createReporterWithEmptyDb();
         String json = reporter.generateFeedback(10, 5);
 
         JSONObject summary = new JSONObject(json).getJSONObject(KEY_DATA).getJSONObject(KEY_SUMMARY);
-        assertTrue(KEY_STATEMENTS + MUST_BE_IN_SUMMARY, summary.has(KEY_STATEMENTS));
-        assertTrue(KEY_BRANCHES + MUST_BE_IN_SUMMARY, summary.has(KEY_BRANCHES));
-        assertTrue(KEY_METHODS + MUST_BE_IN_SUMMARY, summary.has(KEY_METHODS));
+        assertTrue(KEY_APP + MUST_BE_IN_SUMMARY, summary.has(KEY_APP));
+        assertTrue(KEY_TEST_SECTION + MUST_BE_IN_SUMMARY, summary.has(KEY_TEST_SECTION));
+        assertTrue(KEY_COMBINED + MUST_BE_IN_SUMMARY, summary.has(KEY_COMBINED));
+    }
+
+    @Test
+    public void summaryAppHasStatementsBranchesMethods() throws Exception {
+        AgentJsonReporter reporter = createReporterWithEmptyDb();
+        String json = reporter.generateFeedback(10, 5);
+
+        JSONObject app = new JSONObject(json).getJSONObject(KEY_DATA)
+                .getJSONObject(KEY_SUMMARY).getJSONObject(KEY_APP);
+        assertTrue(KEY_STATEMENTS + MUST_BE_IN_SUMMARY, app.has(KEY_STATEMENTS));
+        assertTrue(KEY_BRANCHES + MUST_BE_IN_SUMMARY, app.has(KEY_BRANCHES));
+        assertTrue(KEY_METHODS + MUST_BE_IN_SUMMARY, app.has(KEY_METHODS));
     }
 
     @Test
@@ -124,10 +139,25 @@ public class AgentJsonReporterTest {
         String json = reporter.generateFeedback(10, 5);
 
         JSONObject stmts = new JSONObject(json).getJSONObject(KEY_DATA)
-                .getJSONObject(KEY_SUMMARY).getJSONObject(KEY_STATEMENTS);
+                .getJSONObject(KEY_SUMMARY).getJSONObject(KEY_APP).getJSONObject(KEY_STATEMENTS);
         assertTrue(KEY_COVERED + MUST_BE_IN_METRIC, stmts.has(KEY_COVERED));
         assertTrue(KEY_TOTAL + MUST_BE_IN_METRIC, stmts.has(KEY_TOTAL));
         assertTrue(KEY_PCT + MUST_BE_IN_METRIC, stmts.has(KEY_PCT));
+    }
+
+    @Test
+    public void summaryAppAndTestTotalsEqualCombined() throws Exception {
+        AgentJsonReporter reporter = createReporterWithInstrumentedCode();
+        String json = reporter.generateFeedback(50, 10);
+
+        JSONObject summary = new JSONObject(json).getJSONObject(KEY_DATA).getJSONObject(KEY_SUMMARY);
+        JSONObject app = summary.getJSONObject(KEY_APP).getJSONObject(KEY_STATEMENTS);
+        JSONObject test = summary.getJSONObject(KEY_TEST_SECTION).getJSONObject(KEY_STATEMENTS);
+        JSONObject combined = summary.getJSONObject(KEY_COMBINED).getJSONObject(KEY_STATEMENTS);
+
+        assertEquals("app.total + test.total should equal combined.total",
+                app.getInt(KEY_TOTAL) + test.getInt(KEY_TOTAL),
+                combined.getInt(KEY_TOTAL));
     }
 
     // ==================== ERROR ENVELOPE TESTS ====================
@@ -191,9 +221,9 @@ public class AgentJsonReporterTest {
         AgentJsonReporter reporter = createReporterWithInstrumentedCode();
         String json = reporter.generateFeedback(50, 10);
 
-        JSONObject stmts = new JSONObject(json).getJSONObject(KEY_DATA)
-                .getJSONObject(KEY_SUMMARY).getJSONObject(KEY_STATEMENTS);
-        assertTrue("total statements should be > 0", stmts.getInt(KEY_TOTAL) > 0);
+        JSONObject combined = new JSONObject(json).getJSONObject(KEY_DATA)
+                .getJSONObject(KEY_SUMMARY).getJSONObject(KEY_COMBINED).getJSONObject(KEY_STATEMENTS);
+        assertTrue("total statements should be > 0", combined.getInt(KEY_TOTAL) > 0);
     }
 
     @Test

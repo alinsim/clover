@@ -43,6 +43,9 @@ public class AgentJsonReporter {
     private static final String KEY_TESTS = "tests";
     private static final String KEY_TOP_UNCOVERED = "topUncovered";
     private static final String KEY_SUGGESTIONS = "suggestions";
+    private static final String KEY_APP = "app";
+    private static final String KEY_TEST_SECTION = "test";
+    private static final String KEY_COMBINED = "combined";
     private static final String KEY_FILE = "file";
     private static final String KEY_STATUS = "status";
     private static final String KEY_DURATION_MS = "durationMs";
@@ -100,8 +103,12 @@ public class AgentJsonReporter {
         try {
             JSONObject data = new JSONObject();
 
-            CoverageSummary summary = query.getProjectSummary();
-            data.put(KEY_SUMMARY, serializeMetrics(summary.metrics));
+            SplitCoverageSummary split = query.getProjectSummarySplit();
+            JSONObject summaryObj = new JSONObject();
+            summaryObj.put(KEY_APP, serializeMetrics(split.app));
+            summaryObj.put(KEY_TEST_SECTION, serializeMetrics(split.test));
+            summaryObj.put(KEY_COMBINED, serializeMetrics(split.combined));
+            data.put(KEY_SUMMARY, summaryObj);
 
             List<TestSummary> tests = query.getAllTests();
             JSONArray testsArray = new JSONArray();
