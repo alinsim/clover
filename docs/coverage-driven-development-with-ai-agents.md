@@ -1,10 +1,22 @@
 # Coverage-Driven Development with AI Agents
 
-A practical guide to using OpenClover as the feedback loop for AI-assisted test development. The agent writes tests, Clover measures what they cover, and the agent uses that measurement to decide what to write next.
+## Why This Exists
+
+Every coverage tool can generate a report. You run tests, you get a number, you look at colored lines in a browser. That workflow was designed for humans reading HTML.
+
+AI agents don't read HTML. They don't browse. They operate in a loop — write code, run tests, check results, decide what to do next — and they need that loop to be fast, structured, and queryable. They need to ask "what's uncovered in this specific class?" and get a JSON answer they can parse. They need to ask "which tests cover line 47?" and get a list they can reason about. They need to ask "am I making progress or spinning?" and get a signal.
+
+No coverage tool does this. JaCoCo gives you XML after the build finishes. Cobertura gives you a static report. They're measurement instruments with no feedback channel — one-way glass.
+
+**This is why Clover matters in 2026. Not because it's another coverage tool — but because it's the only one that can talk to the agent writing the tests.**
+
+Clover's source-level instrumentation, per-test coverage tracking, and queryable database make it possible to close the loop: the agent writes a test, Clover measures exactly what it covers (and what it doesn't), the agent reads that measurement and writes the next test. No human in the loop. No report generation step. No parsing XML. Just a direct conversation between the agent and the code's coverage state.
+
+That's the north star for this project. Everything below — the MCP server, the Maven goals, the JSON schema, the impact analysis — exists to make that conversation as rich and low-friction as possible.
 
 ---
 
-## The Core Idea
+## The Core Loop
 
 Traditional TDD: human writes test (red) → human writes code (green) → human refactors.
 
@@ -367,3 +379,15 @@ make core
 # Build everything including IntelliJ plugin
 make build
 ```
+
+---
+
+## The Bigger Picture
+
+The test suite is the most undervalued asset in a codebase. It's the only artifact that proves the code works. But writing tests is tedious, maintaining them is thankless, and most teams do the minimum to hit a coverage target they don't believe in.
+
+AI agents change the economics. An agent can write 50 tests in the time a human writes 5. It doesn't get bored. It doesn't skip edge cases because it's Friday afternoon. But it needs something a human doesn't: a machine-readable feedback signal that tells it exactly where to aim and whether it hit the target.
+
+That's what Clover provides. Not a report for a human to skim — a real-time, queryable, per-test, per-line, per-branch conversation with the codebase's coverage state. The agent asks questions, Clover answers with data, the agent acts on that data. The loop closes.
+
+The end state isn't 100% coverage. It's a codebase where every critical path has a test, every test has a purpose, and an agent can tell you both of those things in under a second.
