@@ -135,6 +135,12 @@ public class AgentCoverageQuery {
         ProjectInfo testModel = database.getTestOnlyModel();
         ProjectInfo fullModel = database.getFullModel();
 
+        // Bug 1 fix: If appModel == fullModel (same reference), no filter is configured
+        // In this case, manually compute the split by checking which files contain test methods
+        if (appModel == fullModel && fullModel != null) {
+            return computeSplitManually(fullModel);
+        }
+
         split.app = createCoverageMetrics(
                 appModel != null ? (BlockMetrics) appModel.getMetrics() : null);
         split.test = createCoverageMetrics(
@@ -143,6 +149,104 @@ public class AgentCoverageQuery {
                 fullModel != null ? (BlockMetrics) fullModel.getMetrics() : null);
 
         return split;
+    }
+
+    /**
+     * Manually compute app/test split when getAppOnlyModel returns the full model.
+     * A file is a "test" file if any of its classes contain methods where isTest() == true.
+     */
+    private SplitCoverageSummary computeSplitManually(ProjectInfo fullModel) {
+        SplitCoverageSummary split = new SplitCoverageSummary();
+
+        int appStmtsCovered = 0, appStmtsTotal = 0;
+        int appBranchesCovered = 0, appBranchesTotal = 0;
+        int appMethodsCovered = 0, appMethodsTotal = 0;
+
+        int testStmtsCovered = 0, testStmtsTotal = 0;
+        int testBranchesCovered = 0, testBranchesTotal = 0;
+        int testMethodsCovered = 0, testMethodsTotal = 0;
+
+        for (PackageInfo pkg : fullModel.getAllPackages()) {
+            for (FileInfo fileInfo : pkg.getFiles()) {
+                boolean isTestFile = isTestFile(fileInfo);
+                BlockMetrics fileMetrics = (BlockMetrics) fileInfo.getMetrics();
+
+                if (isTestFile) {
+                    testStmtsCovered += fileMetrics.getNumCoveredStatements();
+                    testStmtsTotal += fileMetrics.getNumStatements();
+                    testBranchesCovered += fileMetrics.getNumCoveredBranches();
+                    testBranchesTotal += fileMetrics.getNumBranches();
+                    if (fileMetrics instanceof ClassMetrics) {
+                        ClassMetrics cm = (ClassMetrics) fileMetrics;
+                        testMethodsCovered += cm.getNumCoveredMethods();
+                        testMethodsTotal += cm.getNumMethods();
+                    }
+                } else {
+                    appStmtsCovered += fileMetrics.getNumCoveredStatements();
+                    appStmtsTotal += fileMetrics.getNumStatements();
+                    appBranchesCovered += fileMetrics.getNumCoveredBranches();
+                    appBranchesTotal += fileMetrics.getNumBranches();
+                    if (fileMetrics instanceof ClassMetrics) {
+                        ClassMetrics cm = (ClassMetrics) fileMetrics;
+                        appMethodsCovered += cm.getNumCoveredMethods();
+                        appMethodsTotal += cm.getNumMethods();
+                    }
+                }
+            }
+        }
+
+        // Build app metrics
+        split.app = new CoverageMetrics();
+        split.app.statements = new MetricPair();
+        split.app.statements.covered = appStmtsCovered;
+        split.app.statements.total = appStmtsTotal;
+        split.app.statements.pct = appStmtsTotal > 0 ? (appStmtsCovered * 100.0 / appStmtsTotal) : 0.0;
+
+        split.app.branches = new MetricPair();
+        split.app.branches.covered = appBranchesCovered;
+        split.app.branches.total = appBranchesTotal;
+        split.app.branches.pct = appBranchesTotal > 0 ? (appBranchesCovered * 100.0 / appBranchesTotal) : 0.0;
+
+        split.app.methods = new MetricPair();
+        split.app.methods.covered = appMethodsCovered;
+        split.app.methods.total = appMethodsTotal;
+        split.app.methods.pct = appMethodsTotal > 0 ? (appMethodsCovered * 100.0 / appMethodsTotal) : 0.0;
+
+        // Build test metrics
+        split.test = new CoverageMetrics();
+        split.test.statements = new MetricPair();
+        split.test.statements.covered = testStmtsCovered;
+        split.test.statements.total = testStmtsTotal;
+        split.test.statements.pct = testStmtsTotal > 0 ? (testStmtsCovered * 100.0 / testStmtsTotal) : 0.0;
+
+        split.test.branches = new MetricPair();
+        split.test.branches.covered = testBranchesCovered;
+        split.test.branches.total = testBranchesTotal;
+        split.test.branches.pct = testBranchesTotal > 0 ? (testBranchesCovered * 100.0 / testBranchesTotal) : 0.0;
+
+        split.test.methods = new MetricPair();
+        split.test.methods.covered = testMethodsCovered;
+        split.test.methods.total = testMethodsTotal;
+        split.test.methods.pct = testMethodsTotal > 0 ? (testMethodsCovered * 100.0 / testMethodsTotal) : 0.0;
+
+        // Combined is the full model metrics
+        split.combined = createCoverageMetrics((BlockMetrics) fullModel.getMetrics());
+
+        return split;
+    }
+
+    /**
+     * Check if a file is a test file by looking for test methods in its classes.
+     */
+    private boolean isTestFile(FileInfo fileInfo) {
+        for (ClassInfo classInfo : fileInfo.getClasses()) {
+            for (MethodInfo method : classInfo.getMethods()) {
+                if (method.isTest()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -623,7 +727,7 @@ public class AgentCoverageQuery {
                 entry.avgComplexity = computeAvgComplexity(entry.uncoveredMethods);
 
                 // Testability: are the uncovered methods likely testable?
-                entry.likelyTestable = assessTestability(fullFile, coverageData);
+                entry.likelyTestable = assessTestability(fullFile, coverageData, entry.uncoveredMethods);
 
                 // Quick-win score: higher = better target for agent
                 entry.quickWinScore = computeQuickWinScore(entry);
@@ -731,6 +835,14 @@ public class AgentCoverageQuery {
         if (coverageData == null) return new ArrayList<>(testClasses);
 
         Map<TestCaseInfo, BitSet> testCoverage = coverageData.mapTestsAndCoverageForFile(fileInfo);
+
+        // Bug 2 fix: If testCoverage returns ALL tests (unreliable data), return empty list
+        // Heuristic: if more than 50% of all tests cover this file, the data is suspect
+        int totalTests = coverageData.getTests().size();
+        if (testCoverage.size() > totalTests / 2 && totalTests > 0) {
+            return new ArrayList<>();  // Data is unreliable
+        }
+
         for (TestCaseInfo tci : testCoverage.keySet()) {
             String qn = tci.getQualifiedName();
             if (qn != null) {
@@ -785,14 +897,13 @@ public class AgentCoverageQuery {
         return sum / methods.size();
     }
 
-    private boolean assessTestability(FullFileInfo fileInfo, CoverageData coverageData) {
-        // A file is "likely testable" if it has at least one non-infrastructure method
-        for (ClassInfo classInfo : fileInfo.getClasses()) {
-            for (MethodInfo method : classInfo.getMethods()) {
-                String name = method.getSimpleName();
-                if (!UNTESTABLE_METHODS.contains(name) && !name.startsWith("<")) {
-                    return true;
-                }
+    private boolean assessTestability(FullFileInfo fileInfo, CoverageData coverageData, List<MethodSuggestion> uncoveredMethods) {
+        // Bug 3 fix: Check UNCOVERED methods only, not all methods
+        // A file is "likely testable" if it has at least one uncovered non-infrastructure method
+        for (MethodSuggestion ms : uncoveredMethods) {
+            String name = ms.method;
+            if (!UNTESTABLE_METHODS.contains(name) && !name.startsWith("<")) {
+                return true;
             }
         }
         return false;
