@@ -151,12 +151,27 @@ public class AgentCoverageQuery {
     public List<TestSummary> getAllTests() {
         CoverageData coverageData = database.getCoverageData();
         List<TestSummary> summaries = new ArrayList<>();
+        Set<String> seenNames = new HashSet<>();
 
         for (TestCaseInfo tci : coverageData.getTests()) {
+            String qualifiedName = tci.getQualifiedName();
+
+            // Bug 1: Skip tests with null qualified names
+            if (qualifiedName == null) {
+                continue;
+            }
+
+            // Bug 1: Deduplicate by qualified name
+            if (seenNames.contains(qualifiedName)) {
+                continue;
+            }
+            seenNames.add(qualifiedName);
+
             TestSummary summary = new TestSummary();
-            summary.name = tci.getQualifiedName();
+            summary.name = qualifiedName;
             summary.status = getTestStatus(tci);
-            summary.durationMs = (long) (tci.getDuration() * MS_PER_SECOND);
+            // Bug 4: Use Math.round() instead of cast to avoid truncating sub-millisecond durations to 0
+            summary.durationMs = Math.round(tci.getDuration() * MS_PER_SECOND);
 
             BitSet hits = coverageData.getHitsFor(tci);
             BitSet uniqueHits = coverageData.getUniqueHitsFor(tci);

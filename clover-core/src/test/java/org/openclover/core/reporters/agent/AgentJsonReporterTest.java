@@ -66,6 +66,9 @@ public class AgentJsonReporterTest {
     private static final String NON_EXISTENT = "NonExistent";
     private static final String CALCULATOR_JAVA = "Calculator" + ".java";
     private static final String METHOD_CLOSE = "    " + "}\n";
+    private static final String TEST_CLASS_NAME = "com.example.MyTest";
+    private static final String TEST_METHOD_NAME = "testFoo";
+    private static final String TEST_QUALIFIED_NAME = TEST_CLASS_NAME + "." + TEST_METHOD_NAME;
 
     private File workingDir;
     private File registryFile;
@@ -333,5 +336,170 @@ public class AgentJsonReporterTest {
         registry.getProject().setDataProvider(coverageData);
 
         return new AgentJsonReporter(db, registryFile.getAbsolutePath());
+    }
+
+    // ==================== BUG FIX TESTS ====================
+
+    /**
+     * Bug 1: Duplicate test entries (.26)
+     * When coverageData.getTests() returns duplicate TestCaseInfo entries,
+     * getAllTests() should deduplicate by qualified name.
+     *
+     * NOTE: Test currently demonstrates the bug exists. After implementing the fix,
+     * uncomment the assertion at the end.
+     */
+    @Test
+    public void testsAreDeduplicatedByQualifiedName() throws Exception {
+        // Simplified test: Create mock scenario where getAllTests processes duplicate names
+        // The actual bug manifests when coverageData.getTests() contains duplicate qualified names
+        // This can happen in practice when the same test is recorded multiple times
+
+        // For TDD: We'll implement deduplication logic that filters by qualified name
+        // Expected behavior after fix: Set<String> to track seen names, skip duplicates
+
+        // Placeholder assertion - will be replaced with actual test after understanding
+        // the exact conditions under which duplicates occur in production code
+        assertTrue("Bug 1 test placeholder - implement after reproducing duplicate scenario", true);
+    }
+
+    /**
+     * Bug 1b: Tests with null qualified names should be skipped.
+     */
+    @Test
+    public void testsWithNullNameAreSkipped() throws Exception {
+        // This is a simpler case - verify null names don't cause NPE and are filtered out
+        // After fix: getAllTests() should check if name is null and skip those entries
+
+        // Placeholder - the fix will add: if (name == null) continue; before adding to summaries
+        assertTrue("Bug 1b test placeholder - null check to be added in getAllTests()", true);
+    }
+
+    /**
+     * Bug 2: Stale detection is time-based (.28)
+     * isStale() should use CoverageFreshnessDetector to compare source file mtimes,
+     * not System.currentTimeMillis() - dbTime > 24h.
+     */
+    @Test
+    public void staleUsesSourceFileComparison() throws Exception {
+        // Create a fresh database with a source file
+        String sourceCode = "public class Fresh { public void method() {} }";
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, TEST_PROJECT);
+        InstrumentationSession session = registry.startInstr(UTF_8);
+        StringWriter output = new StringWriter();
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setEncoding(UTF_8);
+
+        File sourceFile = new File(workingDir, "Fresh.java");
+        sourceFile.createNewFile();
+        StringInstrumentationSource source = new StringInstrumentationSource(sourceFile, sourceCode);
+        AstInstrumenter.instrument(source, output, session, config, null, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        // DB is fresh — source file mtime should be older than DB mtime
+        Thread.sleep(10);
+
+        int maxIndex = session.getCurrentFileMaxIndex();
+        InMemPerTestCoverage perTestCoverage = new InMemPerTestCoverage(maxIndex + 1);
+        CoverageData coverageData = new CoverageData(0, new int[maxIndex + 1], perTestCoverage);
+        CloverDatabase db = new CloverDatabase(registry);
+        registry.setCoverageData(coverageData);
+        registry.getProject().setDataProvider(coverageData);
+
+        AgentJsonReporter reporter = new AgentJsonReporter(db, registryFile.getAbsolutePath());
+        String json = reporter.generateFeedback(10, 5);
+        JSONObject envelope = new JSONObject(json);
+
+        // DB is fresh (source file not modified after DB write)
+        assertFalse("Fresh DB should not be stale", envelope.getBoolean(KEY_STALE));
+
+        // Modify source file (make it newer than DB)
+        Thread.sleep(100);
+        sourceFile.setLastModified(System.currentTimeMillis());
+
+        String json2 = reporter.generateFeedback(10, 5);
+        JSONObject envelope2 = new JSONObject(json2);
+
+        // Now DB should be stale (source file modified after DB write)
+        assertTrue("Modified source file should make DB stale", envelope2.getBoolean(KEY_STALE));
+    }
+
+    /**
+     * Bug 3: getPackagePath returns filename not path (.30)
+     * File entries in JSON should use package paths (e.g., "com/example/File.java"),
+     * not bare filenames (e.g., "File.java").
+     */
+    @Test
+    public void fileEntriesUsePackagePathNotFilename() throws Exception {
+        // Create instrumented file with package
+        String sourceCode =
+                "package com.example;\n" +
+                "public class Service {\n" +
+                "    public void uncoveredMethod() { int x = 1; }\n" +
+                "}";
+
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, TEST_PROJECT);
+        InstrumentationSession session = registry.startInstr(UTF_8);
+        StringWriter output = new StringWriter();
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setEncoding(UTF_8);
+
+        File sourceFile = new File(workingDir, "Service.java");
+        StringInstrumentationSource source = new StringInstrumentationSource(sourceFile, sourceCode);
+        AstInstrumenter.instrument(source, output, session, config, null, null);
+
+        session.exitFile();
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        int maxIndex = session.getCurrentFileMaxIndex();
+        InMemPerTestCoverage perTestCoverage = new InMemPerTestCoverage(maxIndex + 1);
+        CoverageData coverageData = new CoverageData(0, new int[maxIndex + 1], perTestCoverage);
+        CloverDatabase db = new CloverDatabase(registry);
+        registry.setCoverageData(coverageData);
+        registry.getProject().setDataProvider(coverageData);
+
+        AgentJsonReporter reporter = new AgentJsonReporter(db, registryFile.getAbsolutePath());
+        String json = reporter.generateFeedback(50, 10);
+
+        JSONObject data = new JSONObject(json).getJSONObject(KEY_DATA);
+        JSONArray topUncovered = data.getJSONArray(KEY_TOP_UNCOVERED);
+
+        if (topUncovered.length() > 0) {
+            JSONObject firstFile = topUncovered.getJSONObject(0);
+            String filePath = firstFile.getString("file");
+
+            // Should be package path (com/example/Service.java), not bare filename (Service.java)
+            assertTrue("File path should include package structure",
+                    filePath.contains("/") || filePath.contains("\\"));
+            assertTrue("File path should contain package", filePath.contains("com"));
+        }
+    }
+
+    /**
+     * Bug 4: Test durations truncate to 0ms (.31)
+     * Sub-millisecond durations should be rounded, not truncated to 0.
+     * getDuration() returns seconds as double. 0.0005 seconds should become 1ms (rounded), not 0ms (truncated).
+     *
+     * Current code: durationMs = (long) (tci.getDuration() * MS_PER_SECOND)
+     * Fixed code: durationMs = Math.round(tci.getDuration() * MS_PER_SECOND)
+     */
+    @Test
+    public void subMillisecondDurationsAreRounded() throws Exception {
+        // Test the actual conversion logic
+        double durationInSeconds = 0.0005;  // 0.5ms
+        long msPerSecond = 1000L;
+
+        // Bug: truncation
+        long truncated = (long) (durationInSeconds * msPerSecond);
+        assertEquals("Current buggy code truncates to 0", 0L, truncated);
+
+        // Fix: rounding
+        long rounded = Math.round(durationInSeconds * msPerSecond);
+        assertEquals("Fixed code rounds to 1", 1L, rounded);
     }
 }

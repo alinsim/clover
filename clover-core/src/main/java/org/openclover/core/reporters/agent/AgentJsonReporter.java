@@ -4,6 +4,7 @@ import org.openclover.core.CloverDatabase;
 import org.openclover.core.api.registry.FileInfo;
 import org.openclover.core.api.registry.PackageInfo;
 import org.openclover.core.api.registry.ProjectInfo;
+import org.openclover.core.registry.entities.FullFileInfo;
 import org.openclover.core.reporters.json.JSONArray;
 import org.openclover.core.reporters.json.JSONException;
 import org.openclover.core.reporters.json.JSONObject;
@@ -448,19 +449,21 @@ public class AgentJsonReporter {
     }
 
     private String getPackagePath(FileInfo file) {
-        if (file.getPhysicalFile() != null) {
-            return file.getPhysicalFile().getName();
+        // Bug 3: Use getPackagePath() if available, not just getName() which returns bare filename
+        if (file instanceof FullFileInfo) {
+            FullFileInfo fullFile = (FullFileInfo) file;
+            String packagePath = fullFile.getPackagePath();
+            if (packagePath != null) {
+                return packagePath;
+            }
         }
         return file.getName();
     }
 
     private boolean isStale() {
-        // Check if any source file has been modified since the DB was written
-        File dbFile = new File(dbPath);
-        if (!dbFile.exists()) return true;
-        long dbTime = dbFile.lastModified();
-        // Simplified: only check DB exists and is recent
-        return System.currentTimeMillis() - dbTime > STALE_THRESHOLD_MS;
+        // Bug 2: Use CoverageFreshnessDetector to compare source file mtimes, not time-based check
+        CoverageFreshnessDetector detector = new CoverageFreshnessDetector(database, dbPath);
+        return detector.isStale();
     }
 
     private long getDbTimestamp() {
