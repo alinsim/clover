@@ -26,7 +26,7 @@ class InstrumentationTestBase {
 
     protected String testClassField = "static class CLASS {}"
 
-    protected String snifferField = "public static final " + TestNameSniffer.class.getName() + " SNIFFER=" +
+    protected String snifferField = "public static final " + TestNameSniffer.class.getName() + " SNIFFER = " +
             TestNameSniffer.class.getName() + ".NULL_INSTANCE;"
 
     @Rule
