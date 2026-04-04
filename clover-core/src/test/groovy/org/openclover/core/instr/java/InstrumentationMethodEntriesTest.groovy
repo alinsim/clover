@@ -3,7 +3,7 @@ package org.openclover.core.instr.java
 import org.junit.Ignore
 import org.junit.Test
 
-@Ignore("Tests use ANTLR output format. JavaParser output validated by JavaParserParityTest and ModernJavaSyntaxTest.")
+@Ignore("Expected strings need updating for AstInstrumenter output format — pattern established in InstrumentationStatementsTest")
 class InstrumentationMethodEntriesTest extends InstrumentationTestBase {
     @Test
     void testMethodEntries()

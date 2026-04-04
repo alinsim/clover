@@ -5,7 +5,7 @@ import org.junit.Test
 
 import static org.junit.Assert.assertNotNull
 
-@Ignore("Tests use ANTLR output format. JavaParser output validated by JavaParserParityTest and ModernJavaSyntaxTest.")
+@Ignore("Expected strings need updating for AstInstrumenter output format — pattern established in InstrumentationStatementsTest")
 class InstrumentationLiteralsTest extends InstrumentationTestBase {
 
     @Test

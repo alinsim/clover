@@ -6,7 +6,7 @@ import org.openclover.core.cfg.instr.InstrumentationConfig
 import org.openclover.core.cfg.instr.InstrumentationLevel
 import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig
 
-@Ignore("Tests use ANTLR output format. JavaParser output validated by JavaParserParityTest and ModernJavaSyntaxTest.")
+@Ignore("Expected strings need updating for AstInstrumenter output format — pattern established in InstrumentationStatementsTest")
 class InstrumentationMethodLevelTest extends InstrumentationTestBase {
 
     @Test
