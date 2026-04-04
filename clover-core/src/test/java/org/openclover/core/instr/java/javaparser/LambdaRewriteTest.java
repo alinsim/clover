@@ -13,9 +13,6 @@ import static org.junit.Assert.assertTrue;
  */
 public class LambdaRewriteTest {
 
-    private static final String PREFIX = "__CLR.R";
-    private static final String INIT = "/tmp/clover.db";
-    private static final long VER = 1L;
     private static final String INC = ".inc(";
     private static final String LAMBDA_INC = "lambdaInc(";
     private static final String CLASS_X_OPEN = "class X {\n";
@@ -27,7 +24,7 @@ public class LambdaRewriteTest {
     private static final String FOREACH_PRINTLN = "    void test() { Arrays.asList(1,2,3).forEach(x -> System.out.println(x)); }\n";
 
     private String instrument(String source) {
-        return JavaParserInstrumenter.instrument(source, PREFIX, INIT, VER);
+        return TestInstrumentationHelper.instrument(source);
     }
 
     // --- Expression lambdas in safe contexts: wrapped with lambdaInc ---

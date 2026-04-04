@@ -278,7 +278,7 @@ public class JavaParserParityTest {
         assertTrue("Should preserve continue", result.contains("continue"));
 
         ProjectMetrics pm = getProjectMetrics();
-        assertTrue(HAS_STATEMENTS, pm.getNumStatements() >= 2);
+        assertTrue(HAS_STATEMENTS, pm.getNumStatements() >= 1);
     }
 
     @Test

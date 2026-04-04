@@ -30,6 +30,6 @@ class JavaSyntax10CompilationTest extends JavaSyntaxCompilationTestBase {
         instrumentAndCompileSourceFile(srcDir, mGenSrcDir, fileName, JavaEnvUtils.JAVA_10)
 
         // check private methods in interfaces are instrumented
-        assertFileMatches(fileName, R_INC + "System.out.println", false)
+        assertFileMatches(fileName, R_INC + "\\s*System.out.println", false)
     }
 }

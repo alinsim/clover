@@ -37,7 +37,7 @@ class JavaSyntaxTestMethodCompilationTest extends JavaSyntaxCompilationTestBase 
 
         assertFileMatches(fileName, ".*globalSliceStart.*", false)
         assertFileMatches(fileName, ".*globalSliceEnd.*", false)
-        assertFileMatches(fileName, ".*try\\{.*", false)
+        assertFileMatches(fileName, ".*try\\s*\\{.*", false)
         assertFileMatches(fileName, ".*catch.*Throwable.*", false)
     }
 

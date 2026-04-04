@@ -14,6 +14,7 @@ import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
@@ -536,6 +537,29 @@ public class AstInstrumenter {
             }
         }
 
+        @Override
+        public void visit(RecordDeclaration recordDecl, Void arg) {
+            Position begin = recordDecl.getBegin().orElse(null);
+            Position end = recordDecl.getEnd().orElse(null);
+
+            if (begin != null && isInstrumentationEnabled(begin.line)) {
+                String recordName = recordDecl.getNameAsString();
+                FixedSourceRegion region = new FixedSourceRegion(
+                        begin.line, begin.column,
+                        end != null ? end.line : begin.line,
+                        end != null ? end.column : begin.column);
+
+                Modifiers mods = buildModifiersRecord(recordDecl);
+                session.enterClass(recordName, region, mods, false, false, false);
+            }
+
+            super.visit(recordDecl, arg);
+
+            if (begin != null && end != null) {
+                session.exitClass(end.line, end.column);
+            }
+        }
+
         private Modifiers buildModifiers(ClassOrInterfaceDeclaration classDecl) {
             long modMask = 0;
             if (classDecl.isPublic()) modMask |= Modifier.PUBLIC;
@@ -562,6 +586,16 @@ public class AstInstrumenter {
             if (annoDecl.isPrivate()) modMask |= Modifier.PRIVATE;
             if (annoDecl.isProtected()) modMask |= Modifier.PROTECTED;
             if (annoDecl.isStatic()) modMask |= Modifier.STATIC;
+            return Modifiers.createFrom(modMask, null);
+        }
+
+        private Modifiers buildModifiersRecord(RecordDeclaration recordDecl) {
+            long modMask = 0;
+            if (recordDecl.isPublic()) modMask |= Modifier.PUBLIC;
+            if (recordDecl.isPrivate()) modMask |= Modifier.PRIVATE;
+            if (recordDecl.isProtected()) modMask |= Modifier.PROTECTED;
+            if (recordDecl.isFinal()) modMask |= Modifier.FINAL;
+            if (recordDecl.isStatic()) modMask |= Modifier.STATIC;
             return Modifiers.createFrom(modMask, null);
         }
 

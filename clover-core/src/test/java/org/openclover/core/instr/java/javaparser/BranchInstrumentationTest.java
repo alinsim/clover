@@ -26,11 +26,11 @@ public class BranchInstrumentationTest {
     private static final String CLASS_FOO_INT = "class Foo { void m(int x) {";
     private static final String PROCESS = "process()";
     private static final Pattern SYNTHETIC_ELSE_PATTERN =
-            Pattern.compile("else\\s*\\{\\s*__CLR_TEST\\.inc\\((\\d+)\\)\\s*;\\s*\\}");
+            Pattern.compile("else\\s*\\{\\s*__CLR[a-zA-Z0-9_]+\\.R\\.inc\\((\\d+)\\)\\s*;\\s*\\}");
     private static final Pattern THEN_INC_PATTERN =
-            Pattern.compile("if\\s*\\(x\\)\\s*\\{\\s*__CLR_TEST\\.inc\\((\\d+)\\)");
+            Pattern.compile("if\\s*\\(x\\)\\s*\\{\\s*__CLR[a-zA-Z0-9_]+\\.R\\.inc\\((\\d+)\\)");
     private static final Pattern ELSE_INC_PATTERN =
-            Pattern.compile("else\\s*\\{\\s*__CLR_TEST\\.inc\\((\\d+)\\)");
+            Pattern.compile("else\\s*\\{\\s*__CLR[a-zA-Z0-9_]+\\.R\\.inc\\((\\d+)\\)");
     private static final String THEN_MUST_HAVE_INC = "then block must have R.inc";
 
     @Test

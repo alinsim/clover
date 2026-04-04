@@ -32,7 +32,7 @@ class JavaSyntax9CompilationTest extends JavaSyntaxCompilationTestBase {
         instrumentAndCompileSourceFile(srcDir, mGenSrcDir, fileName, JavaEnvUtils.JAVA_9)
 
         // check private methods in interfaces are instrumented
-        assertFileMatches(fileName, R_INC + "int i = 0;", false)
+        assertFileMatches(fileName, R_INC + "\\s*int i = 0;", false)
     }
 
     @Test

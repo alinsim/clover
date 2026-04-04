@@ -58,13 +58,17 @@ abstract class JavaSyntaxCompilationTestBase {
     protected final String R_IGET_FALSE = "\\(" + R_IGET + "==0\\&false\\)"
 
     /** Regular expression for lambda: lambdaInc is now at top-level class scope */
-    protected final String R_LAMBDA_INC_LEFT = "lambdaInc\\([0-9]+,"
-    protected final String R_LAMBDA_INC_RIGHT = ",[0-9]+\\)"
+    protected final String R_LAMBDA_INC_LEFT = "lambdaInc\\([0-9]+,\\s*"
+    protected final String R_LAMBDA_INC_RIGHT = ",\\s*[0-9]+\\)"
 
     /** Regular expression for case expression returning value and returning void */
-    protected final String R_CASE_EXPRESSION_WITH_YIELD_LEFT = "\\s*\\{" + R_INC + "yield\\s*"
+    protected final String R_CASE_EXPRESSION_WITH_YIELD_LEFT = "\\s*\\{" + R_INC + "\\s*yield\\s*"
     protected final String R_CASE_EXPRESSION_NO_YIELD_LEFT = "\\s*\\{" + R_INC + "\\s*"
     protected final String R_CASE_EXPRESSION_RIGHT = "\\s*\\}"
+
+    /** Regular expression for incRet() used in switch expression arrow cases */
+    protected final String R_INC_RET_LEFT = "incRet\\([0-9]+,\\s*"
+    protected final String R_INC_RET_RIGHT = ",\\s*[0-9]+\\)"
 
     protected File mTestcasesSrcDir
     private File mOutputDir

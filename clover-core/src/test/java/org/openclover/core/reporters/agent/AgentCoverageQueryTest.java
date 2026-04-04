@@ -14,7 +14,7 @@ import org.openclover.core.api.registry.StatementInfo;
 import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
 import org.openclover.core.cfg.instr.java.SourceLevel;
 import org.openclover.core.instr.java.StringInstrumentationSource;
-import org.openclover.core.instr.java.javaparser.SessionAwareInstrumenter;
+import org.openclover.core.instr.java.javaparser.AstInstrumenter;
 import org.openclover.core.recorder.InMemPerTestCoverage;
 import org.openclover.core.registry.Clover2Registry;
 import org.openclover.core.registry.entities.FullFileInfo;
@@ -160,7 +160,7 @@ public class AgentCoverageQueryTest {
 
         StringInstrumentationSource source = new StringInstrumentationSource(
                 new File(workingDir, CALCULATOR_JAVA), sourceCode);
-        SessionAwareInstrumenter.instrument(source, output, session, createConfig(), null);
+        AstInstrumenter.instrument(source, output, session, createConfig(), null, null);
 
         session.exitFile();
         session.close();
@@ -221,7 +221,7 @@ public class AgentCoverageQueryTest {
 
         StringInstrumentationSource source = new StringInstrumentationSource(
                 new File(workingDir, "Conditional.java"), sourceCode);
-        SessionAwareInstrumenter.instrument(source, output, session, createConfig(), null);
+        AstInstrumenter.instrument(source, output, session, createConfig(), null, null);
 
         session.exitFile();
         session.close();
@@ -300,7 +300,7 @@ public class AgentCoverageQueryTest {
 
         StringInstrumentationSource source = new StringInstrumentationSource(
                 new File(workingDir, CALCULATOR_JAVA), sourceCode);
-        SessionAwareInstrumenter.instrument(source, output, session, createConfig(), null);
+        AstInstrumenter.instrument(source, output, session, createConfig(), null, null);
 
         session.exitFile();
         session.close();
@@ -354,7 +354,7 @@ public class AgentCoverageQueryTest {
 
         StringInstrumentationSource source = new StringInstrumentationSource(
                 new File(workingDir, EXAMPLE_JAVA), sourceCode);
-        SessionAwareInstrumenter.instrument(source, output, session, createConfig(), null);
+        AstInstrumenter.instrument(source, output, session, createConfig(), null, null);
 
         session.exitFile();
         session.close();
@@ -397,7 +397,7 @@ public class AgentCoverageQueryTest {
 
         StringInstrumentationSource source = new StringInstrumentationSource(
                 new File(workingDir, EXAMPLE_JAVA), sourceCode);
-        SessionAwareInstrumenter.instrument(source, output, session, createConfig(), null);
+        AstInstrumenter.instrument(source, output, session, createConfig(), null, null);
 
         session.exitFile();
         session.close();

@@ -12,9 +12,6 @@ import static org.junit.Assert.assertTrue;
  */
 public class BracelessControlFlowTest {
 
-    private static final String PREFIX = "__CLR.R";
-    private static final String INIT = "/tmp/clover.db";
-    private static final long VER = 1L;
     private static final String INC = ".inc(";
     private static final String CLASS_OPEN = "class X {\n";
     private static final String BOOL_M_OPEN = "    boolean m(Object o) {\n";
@@ -25,7 +22,7 @@ public class BracelessControlFlowTest {
     private static final String IF_THIS_NOBRACE = "if (this == o){";
 
     private String instrument(String source) {
-        return JavaParserInstrumenter.instrument(source, PREFIX, INIT, VER);
+        return TestInstrumentationHelper.instrument(source);
     }
 
     @Test

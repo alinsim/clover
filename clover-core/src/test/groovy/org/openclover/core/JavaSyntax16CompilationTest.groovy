@@ -61,7 +61,7 @@ class JavaSyntax16CompilationTest extends JavaSyntaxCompilationTestBase {
         final String fileName = "RecordIsNotReservedKeyword.java"
 
         instrumentAndCompileSourceFile(srcDir, mGenSrcDir, fileName, JavaEnvUtils.JAVA_8)
-        assertFileMatches(fileName, R_INC + "System\\.out\\.println\\(record\\);", false)
+        assertFileMatches(fileName, R_INC + "\\s*System\\.out\\.println\\(record\\);", false)
     }
 
     @Test
@@ -70,8 +70,8 @@ class JavaSyntax16CompilationTest extends JavaSyntaxCompilationTestBase {
 
         final String fileName = "Java16InstanceOfPatternMatching.java"
         instrumentAndCompileSourceFile(srcDir, mGenSrcDir, fileName, JavaEnvUtils.JAVA_16)
-        assertFileMatches(fileName, R_INC + "System\\.out\\.println\\(\"obj is String", false)
-        assertFileMatches(fileName, R_INC + "System\\.out\\.println\\(\"obj is final String", false)
+        assertFileMatches(fileName, R_INC + "\\s*System\\.out\\.println\\(\"obj is String", false)
+        assertFileMatches(fileName, R_INC + "\\s*System\\.out\\.println\\(\"obj is final String", false)
 
         executeMainClasses("Java16InstanceOfPatternMatching")
         assertExecOutputContains("obj is String = a string", false)

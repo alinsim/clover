@@ -1,27 +1,66 @@
 package org.openclover.core.instr.java.javaparser;
 
+import org.openclover.core.api.instrumentation.InstrumentationSession;
+import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig;
+import org.openclover.core.instr.java.StringInstrumentationSource;
+import org.openclover.core.registry.Clover2Registry;
+import org.openclover.runtime.api.CloverException;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.StringWriter;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Helper for branch instrumentation tests.
- * Instruments source code strings and provides utilities to inspect the output.
+ * Helper for instrumentation tests.
+ * Instruments source code strings via AstInstrumenter with a minimal session
+ * and provides utilities to inspect the output.
  */
 public final class TestInstrumentationHelper {
 
     private static final Pattern INC_PATTERN = Pattern.compile("\\.inc\\((\\d+)\\)");
-    private static final String RECORDER_PREFIX = "__CLR_TEST";
-    private static final String INIT_STRING = "/tmp/test-clover.db";
 
     private TestInstrumentationHelper() {}
 
     /**
-     * Instrument a Java source string using the standalone JavaParser instrumenter.
+     * Instrument a Java source string using AstInstrumenter with a temporary session.
      */
     public static String instrument(String source) {
-        return JavaParserInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING, 0L);
+        return instrumentWithSession(source, new JavaInstrumentationConfig());
+    }
+
+    /**
+     * Instrument a Java source string using AstInstrumenter with a temporary session
+     * and the given config.
+     */
+    public static String instrumentWithSession(String source, JavaInstrumentationConfig config) {
+        try {
+            File tempDir = Files.createTempDirectory("clover-test-helper").toFile();
+            File registryFile = new File(tempDir, "clover.db");
+            try {
+                Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, "test");
+                InstrumentationSession session = registry.startInstr("UTF-8");
+                StringWriter output = new StringWriter();
+
+                StringInstrumentationSource instrSource = new StringInstrumentationSource(
+                        new File("TestSource.java"), source);
+                AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+                session.exitFile();
+                session.close();
+                return output.toString();
+            } finally {
+                registryFile.delete();
+                new File(tempDir, "clover.db.prev").delete();
+                tempDir.delete();
+            }
+        } catch (IOException | CloverException e) {
+            throw new RuntimeException("Test instrumentation failed", e);
+        }
     }
 
     /**
