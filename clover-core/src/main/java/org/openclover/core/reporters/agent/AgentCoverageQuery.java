@@ -452,4 +452,77 @@ public class AgentCoverageQuery {
 
         return coverage;
     }
+
+    /**
+     * Get method-level test suggestions for a file, ranked by uncovered line count.
+     *
+     * @param classNameOrPath class name or path to query
+     * @param maxSuggestions max number of suggestions
+     * @return ranked list of methods with uncovered lines/branches
+     */
+    public List<MethodSuggestion> getMethodSuggestions(String classNameOrPath, int maxSuggestions) {
+        List<MethodSuggestion> suggestions = new ArrayList<>();
+        FullFileInfo fileInfo = findFileByName(classNameOrPath);
+        if (fileInfo == null) {
+            return suggestions;
+        }
+
+        CoverageData coverageData = database.getCoverageData();
+        int rank = 0;
+
+        for (ClassInfo classInfo : fileInfo.getClasses()) {
+            for (MethodInfo method : classInfo.getMethods()) {
+                List<Integer> uncoveredLines = new ArrayList<>();
+                List<UncoveredBranch> uncoveredBranches = new ArrayList<>();
+
+                for (StatementInfo stmt : method.getStatements()) {
+                    if (coverageData != null && coverageData.getHitCount(stmt.getDataIndex()) == 0) {
+                        uncoveredLines.add(stmt.getStartLine());
+                    }
+                }
+
+                for (BranchInfo branch : method.getBranches()) {
+                    if (branch.getTrueHitCount() == 0) {
+                        UncoveredBranch ub = new UncoveredBranch();
+                        ub.line = branch.getStartLine();
+                        ub.type = BRANCH_TRUE;
+                        ub.method = method.getSimpleName();
+                        uncoveredBranches.add(ub);
+                    }
+                    if (branch.getFalseHitCount() == 0) {
+                        UncoveredBranch ub = new UncoveredBranch();
+                        ub.line = branch.getStartLine();
+                        ub.type = BRANCH_FALSE;
+                        ub.method = method.getSimpleName();
+                        uncoveredBranches.add(ub);
+                    }
+                }
+
+                if (!uncoveredLines.isEmpty() || !uncoveredBranches.isEmpty()) {
+                    MethodSuggestion ms = new MethodSuggestion();
+                    ms.method = method.getSimpleName();
+                    ms.uncoveredLines = uncoveredLines;
+                    ms.uncoveredBranches = uncoveredBranches;
+                    ms.complexity = method.getMetrics().getComplexity();
+                    BlockMetrics metrics = (BlockMetrics) method.getMetrics();
+                    ms.coveredPct = metrics.getNumStatements() > 0
+                            ? (metrics.getNumCoveredStatements() * 100.0 / metrics.getNumStatements())
+                            : 0.0;
+                    suggestions.add(ms);
+                }
+            }
+        }
+
+        // Sort by uncovered line count descending
+        suggestions.sort((a, b) -> Integer.compare(b.uncoveredLines.size(), a.uncoveredLines.size()));
+
+        // Assign ranks and trim
+        List<MethodSuggestion> result = new ArrayList<>();
+        for (MethodSuggestion ms : suggestions) {
+            if (rank >= maxSuggestions) break;
+            ms.rank = ++rank;
+            result.add(ms);
+        }
+        return result;
+    }
 }
