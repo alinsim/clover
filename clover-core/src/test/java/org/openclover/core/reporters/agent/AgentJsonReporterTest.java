@@ -55,6 +55,8 @@ public class AgentJsonReporterTest {
     private static final String KEY_TEST_SECTION = "test";
     private static final String KEY_COMBINED = "combined";
     private static final String KEY_QUICK_WINS = "quickWins";
+    private static final String KEY_FILE = "file";
+    private static final String KEY_UNCOVERED_LINES = "uncoveredLines";
     private static final String MUST_BE_PRESENT = " must be present";
     private static final String MUST_BE_IN_DATA = " must be in data";
     private static final String MUST_BE_IN_SUMMARY = " must be in summary";
@@ -288,6 +290,100 @@ public class AgentJsonReporterTest {
         new JSONObject(reporter.generateSuggestions(NON_EXISTENT, 5));
         new JSONObject(reporter.generateFullReport(10, 5));
         // If any of the above throw JSONException, the test fails
+    }
+
+    /**
+     * Regression: topUncovered must sort by raw uncovered line count, not quickWinScore.
+     *
+     * Scenario: BigConfig has 5 methods at 0% (many uncovered lines, no tests, low quickWinScore).
+     * SmallService has 1 method partially covered (few uncovered lines, but high quickWinScore
+     * because it has existing coverage).
+     *
+     * With maxFiles=1 and quickWinScore sort: SmallService wins (higher score). BUG.
+     * With maxFiles=1 and uncovered-count sort: BigConfig wins (more uncovered). CORRECT.
+     */
+    @Test
+    public void topUncoveredSortsByUncoveredCountNotQuickWinScore() throws Exception {
+        String bigSource =
+                "public class BigConfig {\n"
+                + "    public void a() { int x = 1; }\n"
+                + "    public void b() { int x = 2; }\n"
+                + "    public void c() { int x = 3; }\n"
+                + "    public void d() { int x = 4; }\n"
+                + "    public void e() { int x = 5; }\n"
+                + "}";
+
+        String smallSource =
+                "public class SmallService {\n"
+                + "    public void doIt() { int x = 1; int y = 2; }\n"
+                + "}";
+
+        Clover2Registry registry = Clover2Registry.createOrLoad(registryFile, TEST_PROJECT);
+        InstrumentationSession session = registry.startInstr(UTF_8);
+
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setEncoding(UTF_8);
+
+        StringWriter out1 = new StringWriter();
+        AstInstrumenter.instrument(
+                new StringInstrumentationSource(new File(workingDir, "BigConfig.java"), bigSource),
+                out1, session, config, null, null);
+        session.exitFile();
+
+        StringWriter out2 = new StringWriter();
+        AstInstrumenter.instrument(
+                new StringInstrumentationSource(new File(workingDir, "SmallService.java"), smallSource),
+                out2, session, config, null, null);
+        session.exitFile();
+
+        session.close();
+        registry.saveAndOverwriteFile();
+
+        // Simulate partial coverage on SmallService: mark some hits
+        // This gives SmallService a higher quickWinScore (partial coverage bonus)
+        int maxIndex = session.getCurrentFileMaxIndex();
+        int[] hits = new int[maxIndex + 1];
+        // Mark the first few slots as covered (SmallService's method entry + first statement)
+        // BigConfig stays at 0% (no hits)
+        for (int i = maxIndex - 3; i <= maxIndex; i++) {
+            if (i >= 0) hits[i] = 1;
+        }
+
+        InMemPerTestCoverage perTestCoverage = new InMemPerTestCoverage(maxIndex + 1);
+        CoverageData coverageData = new CoverageData(0, hits, perTestCoverage);
+        CloverDatabase db = new CloverDatabase(registry);
+        registry.setCoverageData(coverageData);
+        registry.getProject().setDataProvider(coverageData);
+
+        AgentJsonReporter reporter = new AgentJsonReporter(db, registryFile.getAbsolutePath());
+
+        // maxFiles=1: only the file with the MOST uncovered lines should appear
+        String json = reporter.generateFeedback(10, 1);
+        JSONObject data = new JSONObject(json).getJSONObject(KEY_DATA);
+        JSONArray topUncovered = data.getJSONArray(KEY_TOP_UNCOVERED);
+
+        assertTrue("topUncovered should have at least 1 entry", topUncovered.length() >= 1);
+
+        // BigConfig has 5 methods × ~1 statement each = more uncovered lines
+        // SmallService has 1 method = fewer uncovered lines
+        // topUncovered must be sorted by uncovered count: BigConfig first
+        // Verify sort: first entry must have >= uncovered lines as second
+        if (topUncovered.length() >= 2) {
+            JSONArray first = topUncovered.getJSONObject(0).getJSONArray(KEY_UNCOVERED_LINES);
+            JSONArray second = topUncovered.getJSONObject(1).getJSONArray(KEY_UNCOVERED_LINES);
+            assertTrue("topUncovered must sort by uncovered line count descending: " +
+                            "first has " + first.length() + ", second has " + second.length(),
+                    first.length() >= second.length());
+        }
+
+        // With maxFiles=1, the file with MORE uncovered lines must be selected
+        String json1 = reporter.generateFeedback(10, 1);
+        JSONArray top1 = new JSONObject(json1).getJSONObject(KEY_DATA).getJSONArray(KEY_TOP_UNCOVERED);
+        if (top1.length() == 1) {
+            String file = top1.getJSONObject(0).getString(KEY_FILE);
+            assertTrue("With maxFiles=1, BigConfig (more uncovered) must be selected, got: " + file,
+                    file.contains("BigConfig"));
+        }
     }
 
     // ==================== HELPERS ====================
