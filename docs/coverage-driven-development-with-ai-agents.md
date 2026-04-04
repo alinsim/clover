@@ -86,6 +86,10 @@ Add to your `.claude/settings.json`:
 
 Now Claude Code can call `clover_uncovered`, `clover_suggest`, etc. directly.
 
+### 4. Give the agent the reference prompt
+
+Copy [docs/agent-clover-prompt.md](agent-clover-prompt.md) into your project's `CLAUDE.md` or system prompt. This tells the agent how to interpret coverage data, what the numbers mean, and what to do with them. Without this context, the agent will misread the JSON — for example, it won't know that the summary includes test sources (which inflates coverage percentages).
+
 ---
 
 ## The Agent Workflow
