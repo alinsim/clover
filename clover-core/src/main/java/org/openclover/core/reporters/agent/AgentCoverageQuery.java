@@ -8,6 +8,7 @@ import org.openclover.core.api.registry.ElementVisitor;
 import org.openclover.core.api.registry.FileInfo;
 import org.openclover.core.api.registry.HasMetricsFilter;
 import org.openclover.core.api.registry.MethodInfo;
+import org.openclover.core.api.registry.PackageInfo;
 import org.openclover.core.api.registry.ProjectInfo;
 import org.openclover.core.api.registry.StatementInfo;
 import org.openclover.core.api.registry.TestCaseInfo;
@@ -16,9 +17,11 @@ import org.openclover.core.registry.metrics.BlockMetrics;
 import org.openclover.core.registry.metrics.ClassMetrics;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -552,5 +555,254 @@ public class AgentCoverageQuery {
             result.add(ms);
         }
         return result;
+    }
+
+    // ==================== ENRICHED FEEDBACK QUERIES ====================
+
+    private static final Set<String> UNTESTABLE_METHODS = new HashSet<>(
+            Arrays.asList("main", "start", "stop", "deploy", "undeploy", "init", "destroy"));
+
+    /**
+     * Get enriched uncovered files for the feedback file.
+     * Each entry contains everything an agent needs to act — no follow-up queries required:
+     * method breakdown, existing tests, branchesOnCoveredLines, quickWinScore, testability.
+     *
+     * @param maxFiles max files to return
+     * @return enriched entries sorted by quickWinScore descending (best targets first)
+     */
+    public List<EnrichedFileUncovered> getEnrichedUncoveredFiles(int maxFiles) {
+        List<EnrichedFileUncovered> results = new ArrayList<>();
+        CoverageData coverageData = database.getCoverageData();
+
+        ProjectInfo appModel = database.getAppOnlyModel();
+        if (appModel == null) {
+            return results;
+        }
+
+        for (PackageInfo pkg : appModel.getAllPackages()) {
+            for (FileInfo file : pkg.getFiles()) {
+                if (!(file instanceof FullFileInfo)) continue;
+                FullFileInfo fullFile = (FullFileInfo) file;
+
+                List<Integer> uncoveredLines = extractUncoveredLines(fullFile);
+                List<UncoveredBranch> uncoveredBranches = extractUncoveredBranches(fullFile);
+                if (uncoveredLines.isEmpty() && uncoveredBranches.isEmpty()) continue;
+
+                EnrichedFileUncovered entry = new EnrichedFileUncovered();
+                entry.file = fullFile.getPackagePath();
+                entry.coverage = createCoverageMetrics((BlockMetrics) fullFile.getMetrics());
+                entry.uncoveredLines = uncoveredLines;
+                entry.uncoveredBranches = uncoveredBranches;
+
+                // Method-level breakdown
+                entry.uncoveredMethods = buildMethodSuggestions(fullFile, coverageData);
+
+                // Existing test classes from coveredBy mapping
+                entry.existingTests = extractExistingTestClasses(fullFile, coverageData);
+                entry.hasExistingTests = !entry.existingTests.isEmpty();
+
+                // Branches on covered lines — the quick-win signal
+                entry.branchesOnCoveredLines = countBranchesOnCoveredLines(fullFile, coverageData);
+
+                // Average complexity of uncovered methods
+                entry.avgComplexity = computeAvgComplexity(entry.uncoveredMethods);
+
+                // Testability: are the uncovered methods likely testable?
+                entry.likelyTestable = assessTestability(fullFile, coverageData);
+
+                // Quick-win score: higher = better target for agent
+                entry.quickWinScore = computeQuickWinScore(entry);
+
+                results.add(entry);
+            }
+        }
+
+        results.sort((a, b) -> Double.compare(b.quickWinScore, a.quickWinScore));
+
+        if (results.size() > maxFiles) {
+            return results.subList(0, maxFiles);
+        }
+        return results;
+    }
+
+    /**
+     * Get files sorted by quickWinScore — the "where should I start?" list.
+     */
+    public List<EnrichedFileUncovered> getQuickWins(int maxFiles) {
+        List<EnrichedFileUncovered> all = getEnrichedUncoveredFiles(maxFiles * 3);
+        List<EnrichedFileUncovered> quickWins = new ArrayList<>();
+
+        for (EnrichedFileUncovered entry : all) {
+            // Quick wins: has existing tests, has branches on covered lines, testable
+            if (entry.hasExistingTests && entry.branchesOnCoveredLines > 0 && entry.likelyTestable) {
+                quickWins.add(entry);
+                if (quickWins.size() >= maxFiles) break;
+            }
+        }
+
+        return quickWins;
+    }
+
+    /**
+     * Get all tests sorted by uniqueLinesCovered descending.
+     */
+    public List<TestSummary> getAllTestsSorted() {
+        List<TestSummary> tests = getAllTests();
+        tests.sort((a, b) -> Integer.compare(b.uniqueLinesCovered, a.uniqueLinesCovered));
+        return tests;
+    }
+
+    // ==================== ENRICHMENT HELPERS ====================
+
+    private List<MethodSuggestion> buildMethodSuggestions(FullFileInfo fileInfo, CoverageData coverageData) {
+        List<MethodSuggestion> suggestions = new ArrayList<>();
+        int rank = 0;
+
+        for (ClassInfo classInfo : fileInfo.getClasses()) {
+            for (MethodInfo method : classInfo.getMethods()) {
+                List<Integer> uncLines = new ArrayList<>();
+                List<UncoveredBranch> uncBranches = new ArrayList<>();
+
+                for (StatementInfo stmt : method.getStatements()) {
+                    if (coverageData != null && coverageData.getHitCount(stmt.getDataIndex()) == 0) {
+                        uncLines.add(stmt.getStartLine());
+                    }
+                }
+                for (BranchInfo branch : method.getBranches()) {
+                    if (branch.getTrueHitCount() == 0) {
+                        UncoveredBranch ub = new UncoveredBranch();
+                        ub.line = branch.getStartLine();
+                        ub.type = BRANCH_TRUE;
+                        ub.method = method.getSimpleName();
+                        uncBranches.add(ub);
+                    }
+                    if (branch.getFalseHitCount() == 0) {
+                        UncoveredBranch ub = new UncoveredBranch();
+                        ub.line = branch.getStartLine();
+                        ub.type = BRANCH_FALSE;
+                        ub.method = method.getSimpleName();
+                        uncBranches.add(ub);
+                    }
+                }
+
+                if (!uncLines.isEmpty() || !uncBranches.isEmpty()) {
+                    MethodSuggestion ms = new MethodSuggestion();
+                    ms.rank = ++rank;
+                    ms.method = method.getSimpleName();
+                    ms.uncoveredLines = uncLines;
+                    ms.uncoveredBranches = uncBranches;
+                    ms.complexity = method.getMetrics().getComplexity();
+                    BlockMetrics metrics = (BlockMetrics) method.getMetrics();
+                    ms.coveredPct = metrics.getNumStatements() > 0
+                            ? (metrics.getNumCoveredStatements() * 100.0 / metrics.getNumStatements())
+                            : 0.0;
+                    suggestions.add(ms);
+                }
+            }
+        }
+
+        suggestions.sort((a, b) -> Integer.compare(b.uncoveredLines.size(), a.uncoveredLines.size()));
+        rank = 0;
+        for (MethodSuggestion ms : suggestions) {
+            ms.rank = ++rank;
+        }
+        return suggestions;
+    }
+
+    private List<String> extractExistingTestClasses(FullFileInfo fileInfo, CoverageData coverageData) {
+        Set<String> testClasses = new LinkedHashSet<>();
+        if (coverageData == null) return new ArrayList<>(testClasses);
+
+        Map<TestCaseInfo, BitSet> testCoverage = coverageData.mapTestsAndCoverageForFile(fileInfo);
+        for (TestCaseInfo tci : testCoverage.keySet()) {
+            String qn = tci.getQualifiedName();
+            if (qn != null) {
+                // Extract class name from "com.example.MyTest.testMethod"
+                int lastDot = qn.lastIndexOf('.');
+                String className = lastDot > 0 ? qn.substring(0, lastDot) : qn;
+                // Simplify to just the class name (not FQ)
+                int pkgDot = className.lastIndexOf('.');
+                testClasses.add(pkgDot > 0 ? className.substring(pkgDot + 1) : className);
+            }
+        }
+        return new ArrayList<>(testClasses);
+    }
+
+    private int countBranchesOnCoveredLines(FullFileInfo fileInfo, CoverageData coverageData) {
+        if (coverageData == null) return 0;
+
+        // Build set of covered lines
+        Set<Integer> coveredLines = new HashSet<>();
+        for (ClassInfo classInfo : fileInfo.getClasses()) {
+            for (MethodInfo method : classInfo.getMethods()) {
+                for (StatementInfo stmt : method.getStatements()) {
+                    if (coverageData.getHitCount(stmt.getDataIndex()) > 0) {
+                        coveredLines.add(stmt.getStartLine());
+                    }
+                }
+            }
+        }
+
+        // Count uncovered branches on covered lines
+        int count = 0;
+        for (ClassInfo classInfo : fileInfo.getClasses()) {
+            for (MethodInfo method : classInfo.getMethods()) {
+                for (BranchInfo branch : method.getBranches()) {
+                    int line = branch.getStartLine();
+                    if (coveredLines.contains(line)) {
+                        if (branch.getTrueHitCount() == 0) count++;
+                        if (branch.getFalseHitCount() == 0) count++;
+                    }
+                }
+            }
+        }
+        return count;
+    }
+
+    private double computeAvgComplexity(List<MethodSuggestion> methods) {
+        if (methods.isEmpty()) return 0.0;
+        double sum = 0;
+        for (MethodSuggestion ms : methods) {
+            sum += ms.complexity;
+        }
+        return sum / methods.size();
+    }
+
+    private boolean assessTestability(FullFileInfo fileInfo, CoverageData coverageData) {
+        // A file is "likely testable" if it has at least one non-infrastructure method
+        for (ClassInfo classInfo : fileInfo.getClasses()) {
+            for (MethodInfo method : classInfo.getMethods()) {
+                String name = method.getSimpleName();
+                if (!UNTESTABLE_METHODS.contains(name) && !name.startsWith("<")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private double computeQuickWinScore(EnrichedFileUncovered entry) {
+        double score = 0;
+
+        // Existing tests = can extend existing test classes (major boost)
+        if (entry.hasExistingTests) score += 30;
+
+        // Branches on covered lines = reachable code needing one more test case
+        score += entry.branchesOnCoveredLines * 5;
+
+        // Partial coverage = not starting from scratch
+        if (entry.coverage != null && entry.coverage.statements != null) {
+            double pct = entry.coverage.statements.pct;
+            if (pct > 30 && pct < 90) score += 20;
+        }
+
+        // Low complexity = easier to test
+        if (entry.avgComplexity > 0 && entry.avgComplexity <= 5) score += 15;
+        else if (entry.avgComplexity <= 10) score += 5;
+
+        // Testable code
+        if (entry.likelyTestable) score += 10;
+
+        return score;
     }
 }

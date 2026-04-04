@@ -74,6 +74,14 @@ public class AgentJsonReporter {
     private static final String KEY_RANK = "rank";
     private static final String KEY_COMPLEXITY = "complexity";
     private static final String KEY_COVERED_PCT = "coveredPct";
+    private static final String KEY_QUICK_WINS = "quickWins";
+    private static final String KEY_UNCOVERED_METHODS = "uncoveredMethods";
+    private static final String KEY_EXISTING_TESTS = "existingTests";
+    private static final String KEY_HAS_EXISTING_TESTS = "hasExistingTests";
+    private static final String KEY_BRANCHES_ON_COVERED_LINES = "branchesOnCoveredLines";
+    private static final String KEY_AVG_COMPLEXITY = "avgComplexity";
+    private static final String KEY_LIKELY_TESTABLE = "likelyTestable";
+    private static final String KEY_QUICK_WIN_SCORE = "quickWinScore";
     private static final String ERR_CLASS_NOT_FOUND = "class_not_found";
     private static final String ERR_TEST_NOT_FOUND = "test_not_found";
     private static final String MSG_NO_COVERAGE_FOR = "No coverage data found for: ";
@@ -110,7 +118,8 @@ public class AgentJsonReporter {
             summaryObj.put(KEY_COMBINED, serializeMetrics(split.combined));
             data.put(KEY_SUMMARY, summaryObj);
 
-            List<TestSummary> tests = query.getAllTests();
+            // Tests sorted by unique coverage (most valuable first)
+            List<TestSummary> tests = query.getAllTestsSorted();
             JSONArray testsArray = new JSONArray();
             int testCount = 0;
             for (TestSummary test : tests) {
@@ -120,16 +129,21 @@ public class AgentJsonReporter {
             }
             data.put(KEY_TESTS, testsArray);
 
+            // Top uncovered: enriched with method breakdown, existing tests, quick-win signals
+            List<EnrichedFileUncovered> enrichedFiles = query.getEnrichedUncoveredFiles(maxFiles);
             JSONArray uncoveredArray = new JSONArray();
-            List<FileUncoveredResult> allFiles = getAllUncoveredFiles();
-            int fileCount = 0;
-            for (FileUncoveredResult file : allFiles) {
-                if (fileCount >= maxFiles) break;
-                if (file.uncoveredLines.isEmpty() && file.uncoveredBranches.isEmpty()) continue;
-                uncoveredArray.put(serializeFileUncoveredCompact(file));
-                fileCount++;
+            for (EnrichedFileUncovered file : enrichedFiles) {
+                uncoveredArray.put(serializeEnrichedFile(file));
             }
             data.put(KEY_TOP_UNCOVERED, uncoveredArray);
+
+            // Quick wins: best ROI targets (partially covered, branches on covered lines, has tests)
+            List<EnrichedFileUncovered> quickWins = query.getQuickWins(maxFiles);
+            JSONArray quickWinsArray = new JSONArray();
+            for (EnrichedFileUncovered file : quickWins) {
+                quickWinsArray.put(serializeEnrichedFile(file));
+            }
+            data.put(KEY_QUICK_WINS, quickWinsArray);
 
             return wrapEnvelope(SCOPE_FULL, data).toString(2);
         } catch (JSONException e) {
@@ -277,6 +291,33 @@ public class AgentJsonReporter {
         obj.put(KEY_STATEMENTS, serializeMetricPair(metrics.statements));
         obj.put(KEY_BRANCHES, serializeMetricPair(metrics.branches));
         obj.put(KEY_METHODS, serializeMetricPair(metrics.methods));
+        return obj;
+    }
+
+    private JSONObject serializeEnrichedFile(EnrichedFileUncovered file) throws JSONException {
+        JSONObject obj = new JSONObject();
+        obj.put(KEY_FILE, file.file);
+        obj.put(KEY_COVERAGE, serializeMetrics(file.coverage));
+        obj.put(KEY_UNCOVERED_LINES, new JSONArray(file.uncoveredLines));
+        obj.put(KEY_UNCOVERED_BRANCHES, serializeBranches(file.uncoveredBranches));
+
+        // Method-level breakdown — eliminates need for clover:suggest follow-up
+        JSONArray methodsArray = new JSONArray();
+        for (MethodSuggestion ms : file.uncoveredMethods) {
+            methodsArray.put(serializeMethodSuggestion(ms));
+        }
+        obj.put(KEY_UNCOVERED_METHODS, methodsArray);
+
+        // Existing test classes — eliminates need for clover:uncovered follow-up
+        obj.put(KEY_EXISTING_TESTS, new JSONArray(file.existingTests));
+        obj.put(KEY_HAS_EXISTING_TESTS, file.hasExistingTests);
+
+        // Quick-win signals
+        obj.put(KEY_BRANCHES_ON_COVERED_LINES, file.branchesOnCoveredLines);
+        obj.put(KEY_AVG_COMPLEXITY, Math.round(file.avgComplexity * 10.0) / 10.0);
+        obj.put(KEY_LIKELY_TESTABLE, file.likelyTestable);
+        obj.put(KEY_QUICK_WIN_SCORE, Math.round(file.quickWinScore * 10.0) / 10.0);
+
         return obj;
     }
 

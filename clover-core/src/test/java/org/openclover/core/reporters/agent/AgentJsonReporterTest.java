@@ -12,6 +12,7 @@ import org.openclover.core.instr.java.javaparser.AstInstrumenter;
 import org.openclover.core.recorder.InMemPerTestCoverage;
 import org.openclover.core.registry.Clover2Registry;
 import org.openclover.core.registry.entities.FullTestCaseInfo;
+import org.openclover.core.reporters.json.JSONArray;
 import org.openclover.core.reporters.json.JSONObject;
 import org.openclover.core.util.FileUtils;
 import org.openclover.runtime.registry.format.RegAccessMode;
@@ -53,6 +54,7 @@ public class AgentJsonReporterTest {
     private static final String KEY_APP = "app";
     private static final String KEY_TEST_SECTION = "test";
     private static final String KEY_COMBINED = "combined";
+    private static final String KEY_QUICK_WINS = "quickWins";
     private static final String MUST_BE_PRESENT = " must be present";
     private static final String MUST_BE_IN_DATA = " must be in data";
     private static final String MUST_BE_IN_SUMMARY = " must be in summary";
@@ -100,7 +102,7 @@ public class AgentJsonReporterTest {
     }
 
     @Test
-    public void feedbackDataHasSummaryTestsAndTopUncovered() throws Exception {
+    public void feedbackDataHasSummaryTestsTopUncoveredAndQuickWins() throws Exception {
         AgentJsonReporter reporter = createReporterWithEmptyDb();
         String json = reporter.generateFeedback(10, 5);
 
@@ -108,6 +110,33 @@ public class AgentJsonReporterTest {
         assertTrue(KEY_SUMMARY + MUST_BE_IN_DATA, data.has(KEY_SUMMARY));
         assertTrue(KEY_TESTS + MUST_BE_IN_DATA, data.has(KEY_TESTS));
         assertTrue(KEY_TOP_UNCOVERED + MUST_BE_IN_DATA, data.has(KEY_TOP_UNCOVERED));
+        assertTrue(KEY_QUICK_WINS + MUST_BE_IN_DATA, data.has(KEY_QUICK_WINS));
+    }
+
+    @Test
+    public void enrichedFileEntryHasMethodBreakdownAndTestClasses() throws Exception {
+        AgentJsonReporter reporter = createReporterWithInstrumentedCode();
+        String json = reporter.generateFeedback(50, 10);
+
+        JSONObject data = new JSONObject(json).getJSONObject(KEY_DATA);
+        JSONArray topUncovered = data.getJSONArray(KEY_TOP_UNCOVERED);
+        if (topUncovered.length() > 0) {
+            JSONObject firstFile = topUncovered.getJSONObject(0);
+            assertTrue("enriched entry must have uncoveredMethods",
+                    firstFile.has("uncoveredMethods"));
+            assertTrue("enriched entry must have existingTests",
+                    firstFile.has("existingTests"));
+            assertTrue("enriched entry must have hasExistingTests",
+                    firstFile.has("hasExistingTests"));
+            assertTrue("enriched entry must have branchesOnCoveredLines",
+                    firstFile.has("branchesOnCoveredLines"));
+            assertTrue("enriched entry must have avgComplexity",
+                    firstFile.has("avgComplexity"));
+            assertTrue("enriched entry must have likelyTestable",
+                    firstFile.has("likelyTestable"));
+            assertTrue("enriched entry must have quickWinScore",
+                    firstFile.has("quickWinScore"));
+        }
     }
 
     @Test

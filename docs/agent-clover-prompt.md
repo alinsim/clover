@@ -57,33 +57,57 @@ The feedback file has three sections: `summary`, `tests`, and `topUncovered`.
 - `status`: "pass", "fail", or "error". Failed tests still contribute coverage data for the lines they executed before failing.
 - The list may be capped (default 50 tests). Not all tests are shown.
 
-### topUncovered — Where to Focus
+### topUncovered — Enriched File Entries (No Follow-Up Queries Needed)
+
+Each entry contains everything you need to start writing a test:
 
 ```json
 "topUncovered": [
   {
-    "file": "OrderService.java",
+    "file": "com/example/OrderService.java",
+    "coverage": { "statements": { "covered": 42, "total": 60, "pct": 70.0 }, ... },
     "uncoveredLines": [25, 26, 30, 31, 45, 46, 47],
     "uncoveredBranches": [
-      { "line": 30, "type": "false" },
-      { "line": 45, "type": "true" }
-    ]
+      { "line": 30, "type": "false", "method": "validateInput" },
+      { "line": 45, "type": "true", "method": "processOrder" }
+    ],
+    "uncoveredMethods": [
+      { "rank": 1, "method": "processOrder", "uncoveredLines": [45,46,47], "complexity": 8, "coveredPct": 62.5 },
+      { "rank": 2, "method": "validateInput", "uncoveredLines": [30,31], "complexity": 3, "coveredPct": 80.0 }
+    ],
+    "existingTests": ["OrderServiceTest", "IntegrationTest"],
+    "hasExistingTests": true,
+    "branchesOnCoveredLines": 2,
+    "avgComplexity": 5.5,
+    "likelyTestable": true,
+    "quickWinScore": 75.0
   }
 ]
 ```
 
-**This is your primary action item.** These are production files sorted by number of uncovered lines (worst first). Write tests targeting these files.
+**Sorted by `quickWinScore` descending (best targets first), NOT by raw uncovered count.**
 
 **What matters:**
-- `uncoveredLines`: exact line numbers with zero coverage. Write tests that execute these lines.
-- `uncoveredBranches`: decision points where one path was never taken. `"type": "false"` means the condition was always true — write a test where it's false. `"type": "true"` means the opposite.
-- Files with many uncovered lines AND uncovered branches are the highest priority — they have untested logic paths.
+- `uncoveredMethods`: start with rank 1 (most uncovered lines). No need to run `clover:suggest` separately.
+- `existingTests`: put your new test in one of these classes. No need to run `clover:uncovered` separately.
+- `branchesOnCoveredLines`: if > 0, the code is already reachable — you just need one more test case for the other branch path. This is the strongest quick-win signal.
+- `likelyTestable`: false means infrastructure code (main(), lifecycle methods). Skip it.
+- `quickWinScore`: combines all signals. Higher = better ROI.
+
+### quickWins — Best Starting Points
+
+Same format as `topUncovered` but filtered to only include files that:
+- Already have existing test classes (>0% coverage, test infrastructure exists)
+- Have uncovered branches on covered lines (reachable code, just needs another path)
+- Are likely testable (not infrastructure/lifecycle code)
+
+**Start with `quickWins`. Fall back to `topUncovered` when quickWins are exhausted.**
 
 ---
 
-## Querying Specific Files
+## Querying Specific Files (Usually Not Needed)
 
-When you need detail on a specific class:
+The feedback file now contains method breakdown and existing tests inline. But if you need deeper detail:
 
 ```bash
 mvn -B -q clover:uncovered -Dclass=OrderService
