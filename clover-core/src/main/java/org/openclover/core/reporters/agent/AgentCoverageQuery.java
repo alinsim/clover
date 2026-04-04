@@ -632,7 +632,9 @@ public class AgentCoverageQuery {
             }
         }
 
-        results.sort((a, b) -> Double.compare(b.quickWinScore, a.quickWinScore));
+        // Sort by raw uncovered line count descending (biggest gaps first)
+        // quickWins section handles ROI-based sorting separately
+        results.sort((a, b) -> Integer.compare(b.uncoveredLines.size(), a.uncoveredLines.size()));
 
         if (results.size() > maxFiles) {
             return results.subList(0, maxFiles);
