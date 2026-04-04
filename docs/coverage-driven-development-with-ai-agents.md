@@ -45,17 +45,22 @@ The human's role shifts from writing tests to reviewing them. The agent handles 
 ### 2. Run the instrumentation + test + report cycle
 
 ```bash
-# Instrument, compile, test, generate coverage database
+# Instrument, compile, test, generate coverage database + HTML report
 mvn clean clover:setup test clover:aggregate clover:clover
 
-# Or the shorthand for agent workflows:
-mvn clean verify -Dclover.agent=true
+# Generate the agent feedback JSON (run after tests)
+mvn clover:agent-feedback -Dclover.agent=true
 ```
 
 After this, you have:
 - `target/clover/clover.db` — the coverage database (binary)
-- `target/clover/agent-feedback.json` — auto-generated summary (if `-Dclover.agent=true`)
+- `target/clover/agent-feedback.json` — machine-readable summary for agents
 - `target/site/clover/` — HTML report (for human review)
+
+The full agent workflow in one line:
+```bash
+mvn clean clover:setup test clover:aggregate clover:clover clover:agent-feedback -Dclover.agent=true
+```
 
 ### 3. (Optional) Start the MCP server for Claude Code
 
@@ -368,7 +373,7 @@ Branch coverage is the most valuable metric for agents. Statement coverage can b
 
 ```bash
 # Full cycle: instrument → test → report → agent feedback
-mvn clean clover:setup test clover:aggregate clover:clover -Dclover.agent=true
+mvn clean clover:setup test clover:aggregate clover:clover clover:agent-feedback -Dclover.agent=true
 
 # Quick: just query existing coverage (no recompile)
 mvn clover:uncovered -Dclass=OrderService
