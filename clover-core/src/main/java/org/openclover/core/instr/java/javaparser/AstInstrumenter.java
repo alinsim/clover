@@ -1,8 +1,10 @@
 package org.openclover.core.instr.java.javaparser;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Position;
+import com.github.javaparser.Problem;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
@@ -20,10 +22,13 @@ import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.BooleanLiteralExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
+import com.github.javaparser.ast.expr.EnclosedExpr;
 import com.github.javaparser.ast.expr.IntegerLiteralExpr;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.NodeList;
@@ -88,6 +93,8 @@ public class AstInstrumenter {
     private static final String MARKER_COMMENT = "/* $$ This file has been instrumented by OpenClover $$ */";
     private static final String INC_PREFIX = ".inc(";
     private static final String INC_SUFFIX = ");";
+    private static final String IGET_METHOD = "iget";
+    private static final String VARARGS_SUFFIX = "...";
     private static final String LAMBDA_INC_METHOD = "lambdaI" + "nc";
     private static final String VARIABLE_DECLARATOR = "VariableD" + "eclarator";
     private static final String ASSIGN_EXPR = "AssignE" + "xpr";
@@ -134,8 +141,27 @@ public class AstInstrumenter {
             ParserConfiguration parserConfig = new ParserConfiguration()
                     .setLanguageLevel(mapSourceLevel(config.getSourceLevel()));
             JavaParser parser = new JavaParser(parserConfig);
-            CompilationUnit cu = parser.parse(sourceCode).getResult()
-                    .orElseThrow(() -> new CloverException("Failed to parse source: " + source.getSourceFileLocation()));
+            ParseResult<CompilationUnit> parseResult = parser.parse(sourceCode);
+            if (!parseResult.isSuccessful() || !parseResult.getResult().isPresent()) {
+                StringBuilder msg = new StringBuilder("Failed to parse source: ")
+                        .append(source.getSourceFileLocation());
+                int shown = 0;
+                for (Problem problem : parseResult.getProblems()) {
+                    if (shown >= 3) {
+                        msg.append("; ... and ").append(parseResult.getProblems().size() - 3).append(" more");
+                        break;
+                    }
+                    msg.append("; ");
+                    problem.getLocation().ifPresent(loc ->
+                            msg.append("line ").append(loc.getBegin().getRange().map(r -> r.begin.line).orElse(-1))
+                                    .append(", col ").append(loc.getBegin().getRange().map(r -> r.begin.column).orElse(-1))
+                                    .append(": "));
+                    msg.append(problem.getMessage());
+                    shown++;
+                }
+                throw new CloverException(msg.toString());
+            }
+            CompilationUnit cu = parseResult.getResult().get();
 
             LexicalPreservingPrinter.setup(cu);
 
@@ -806,6 +832,74 @@ public class AstInstrumenter {
             }
         }
 
+        // ========== TERNARY EXPRESSION BRANCH INSTRUMENTATION ==========
+
+        @Override
+        public void visit(ConditionalExpr ternary, Void arg) {
+            // Visit nested expressions FIRST (process inner ternaries before outer)
+            super.visit(ternary, arg);
+
+            Position pos = ternary.getBegin().orElse(null);
+            if (pos == null || !isInstrumentationEnabled(pos.line)) {
+                return;
+            }
+
+            // Register branch with session
+            FixedSourceRegion region = new FixedSourceRegion(pos.line, pos.column);
+            FullBranchInfo branchInfo = session.addBranch(
+                    new ContextSetImpl(),
+                    region, true, 0,
+                    LanguageConstruct.Builtin.BRANCH);
+            if (branchInfo == null) {
+                return;
+            }
+
+            int trueIndex = branchInfo.getDataIndex();
+            int falseIndex = trueIndex + 1;
+
+            // Wrap condition with iget pattern: (((condition)&&(R.iget(N)!=0|true))||(R.iget(N+1)==0&false))
+            Expression condition = ternary.getCondition().clone();
+
+            // Build R.iget(trueIndex)
+            MethodCallExpr igetTrue = new MethodCallExpr(
+                    new NameExpr(recorderPrefix),
+                    IGET_METHOD,
+                    new NodeList<>(new IntegerLiteralExpr(String.valueOf(trueIndex))));
+
+            // Build R.iget(falseIndex)
+            MethodCallExpr igetFalse = new MethodCallExpr(
+                    new NameExpr(recorderPrefix),
+                    IGET_METHOD,
+                    new NodeList<>(new IntegerLiteralExpr(String.valueOf(falseIndex))));
+
+            // Build: (R.iget(trueIndex) != 0 | true)
+            BinaryExpr igetTrueCheck = new BinaryExpr(
+                    new BinaryExpr(igetTrue, new IntegerLiteralExpr("0"), BinaryExpr.Operator.NOT_EQUALS),
+                    new BooleanLiteralExpr(true),
+                    BinaryExpr.Operator.BINARY_OR);
+
+            // Build: (R.iget(falseIndex) == 0 & false)
+            BinaryExpr igetFalseCheck = new BinaryExpr(
+                    new BinaryExpr(igetFalse, new IntegerLiteralExpr("0"), BinaryExpr.Operator.EQUALS),
+                    new BooleanLiteralExpr(false),
+                    BinaryExpr.Operator.BINARY_AND);
+
+            // Build: (condition && igetTrueCheck)
+            BinaryExpr leftSide = new BinaryExpr(
+                    new EnclosedExpr(condition),
+                    igetTrueCheck,
+                    BinaryExpr.Operator.AND);
+
+            // Build: (leftSide || igetFalseCheck)
+            BinaryExpr wrappedCondition = new BinaryExpr(
+                    new EnclosedExpr(leftSide),
+                    igetFalseCheck,
+                    BinaryExpr.Operator.OR);
+
+            // Replace the condition in the ternary
+            ternary.setCondition(new EnclosedExpr(wrappedCondition));
+        }
+
         // ========== TRY-WITH-RESOURCES INSTRUMENTATION ==========
 
         @Override
@@ -1017,9 +1111,10 @@ public class AstInstrumenter {
             }
 
             // Scan entire block for constructs nested inside expressions
-            // that instrumentBlock can't reach (lambdas, method refs, switch expressions)
+            // that instrumentBlock can't reach (lambdas, method refs, switch expressions, ternaries)
             instrumentNestedLambdas(block);
             instrumentNestedSwitchExpressions(block);
+            instrumentNestedTernaries(block);
         }
 
         /**
@@ -1087,6 +1182,15 @@ public class AstInstrumenter {
                 for (SwitchEntry entry : switchExpr.getEntries()) {
                     visit(entry, null);
                 }
+            }
+        }
+
+        /**
+         * Scans for ConditionalExpr (ternary) nodes inside expressions and instruments them.
+         */
+        private void instrumentNestedTernaries(Node node) {
+            for (ConditionalExpr ternary : node.findAll(ConditionalExpr.class)) {
+                visit(ternary, null);
             }
         }
 
@@ -1320,7 +1424,21 @@ public class AstInstrumenter {
             if (method.isSynchronized()) modMask |= Modifier.SYNCHRONIZED;
             if (method.isNative()) modMask |= Modifier.NATIVE;
             Modifiers mods = Modifiers.createFrom(modMask, null);
-            return new MethodSignature(name, null, returnType, null, null, mods);
+
+            // Extract parameters
+            org.openclover.core.registry.entities.Parameter[] parameters = extractParameters(method.getParameters());
+
+            // Extract type parameters (generics like <T, E>)
+            String typeParams = method.getTypeParameters().isEmpty() ? null :
+                    method.getTypeParameters().toString();
+
+            // Extract throws types
+            String[] throwsTypes = method.getThrownExceptions().isEmpty() ? null :
+                    method.getThrownExceptions().stream()
+                            .map(type -> type.asString())
+                            .toArray(String[]::new);
+
+            return new MethodSignature(name, typeParams, returnType, parameters, throwsTypes, mods);
         }
 
         private MethodSignature buildConstructorSignature(ConstructorDeclaration ctor) {
@@ -1330,7 +1448,53 @@ public class AstInstrumenter {
             if (ctor.isPrivate()) modMask |= Modifier.PRIVATE;
             if (ctor.isProtected()) modMask |= Modifier.PROTECTED;
             Modifiers mods = Modifiers.createFrom(modMask, null);
-            return new MethodSignature(name, null, null, null, null, mods);
+
+            // Extract parameters
+            org.openclover.core.registry.entities.Parameter[] parameters = extractParameters(ctor.getParameters());
+
+            // Extract type parameters (generics like <T>)
+            String typeParams = ctor.getTypeParameters().isEmpty() ? null :
+                    ctor.getTypeParameters().toString();
+
+            // Extract throws types
+            String[] throwsTypes = ctor.getThrownExceptions().isEmpty() ? null :
+                    ctor.getThrownExceptions().stream()
+                            .map(type -> type.asString())
+                            .toArray(String[]::new);
+
+            return new MethodSignature(name, typeParams, null, parameters, throwsTypes, mods);
+        }
+
+        /**
+         * Extracts parameters from JavaParser's Parameter list and converts them to Clover's Parameter type.
+         * Handles varargs (e.g., Object...) and generic types (e.g., List<String>).
+         */
+        private org.openclover.core.registry.entities.Parameter[] extractParameters(NodeList<Parameter> javaParserParams) {
+            if (javaParserParams.isEmpty()) {
+                return null;
+            }
+
+            org.openclover.core.registry.entities.Parameter[] parameters =
+                    new org.openclover.core.registry.entities.Parameter[javaParserParams.size()];
+
+            for (int i = 0; i < javaParserParams.size(); i++) {
+                Parameter param = javaParserParams.get(i);
+                String type = param.getTypeAsString();
+                String name = param.getNameAsString();
+
+                // Handle varargs: JavaParser returns type without "..." but param.isVarArgs() is true
+                if (param.isVarArgs() && !type.endsWith(VARARGS_SUFFIX)) {
+                    // Remove trailing [] if present (JavaParser may represent varargs as array)
+                    if (type.endsWith("[]")) {
+                        type = type.substring(0, type.length() - 2);
+                    }
+                    type = type + VARARGS_SUFFIX;
+                }
+
+                parameters[i] = new org.openclover.core.registry.entities.Parameter(type, name);
+            }
+
+            return parameters;
         }
 
         // ========== CONTEXT MATCHING ==========

@@ -29,6 +29,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import org.openclover.runtime.api.CloverException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -1596,5 +1599,421 @@ public class AstInstrumenterTest {
         // Switch statements don't need yield — block rewriting is safe
         assertParseable(result);
         assertTrue("Switch statement cases should be instrumented", result.contains(".inc("));
+    }
+
+    // ========== LINE NUMBER PRESERVATION TESTS ==========
+
+    /**
+     * INVESTIGATION TEST: Documents line number shifting in instrumented output.
+     *
+     * FINDING: Line numbers ARE shifted in the instrumented output.
+     * - Original: int a = 1 on line 3, int b = 2 on line 4
+     * - Instrumented: int a = 1 on line 6, int b = 2 on line 8
+     * - Shift: +3 lines for first statement, +4 lines for second statement
+     *
+     * ROOT CAUSE:
+     * - R.inc() is inserted as a separate AST node (Statement)
+     * - LexicalPreservingPrinter formats each statement on its own line
+     * - This shifts all subsequent lines down
+     *
+     * IMPACT:
+     * - Registry line numbers (for coverage reports): CORRECT
+     *   → Uses FixedSourceRegion(begin.line, begin.column) from ORIGINAL AST
+     * - Stack trace line numbers (from compiled bytecode): INCORRECT
+     *   → Uses line numbers from INSTRUMENTED output (shifted)
+     *
+     * COMPARISON WITH ORIGINAL CLOVER:
+     * - Original ANTLR-based Clover used text-based insertion
+     * - Need to verify if it had the same line shift issue
+     *
+     * POTENTIAL FIXES:
+     * 1. Insert R.inc() on SAME line: "R.inc(N); int a = 1;" (one line)
+     *    - Challenge: LPP doesn't easily support this
+     * 2. Post-process output to merge R.inc() with next statement
+     *    - Challenge: Complex regex/parsing, may break for edge cases
+     * 3. Accept as limitation and document
+     *    - If original Clover also shifted lines, this isn't a regression
+     *
+     * This test is marked @Ignore until a fix is implemented or the limitation
+     * is accepted and documented.
+     */
+    @Test
+    @org.junit.Ignore("KNOWN ISSUE: Line numbers shift in instrumented output - impacts stack traces")
+    public void lineNumbersPreservedAfterInstrumentation() {
+        String source = "class X {\n"                // line 1
+                + "    void foo() {\n"                // line 2
+                + "        int a = 1;\n"              // line 3
+                + "        int b = 2;\n"              // line 4
+                + "    }\n"                           // line 5
+                + "}\n";                              // line 6
+
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        // Parse output and find line numbers for key statements
+        String[] lines = output.split("\n");
+        int lineA = -1;
+        int lineB = -1;
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.contains("int a = 1")) {
+                lineA = i + 1; // Line numbers are 1-based
+            }
+            if (line.contains("int b = 2")) {
+                lineB = i + 1;
+            }
+        }
+
+        // Document the findings
+        System.out.println("=== Line Number Preservation Investigation ===");
+        System.out.println("Original source:");
+        System.out.println("  Line 3: int a = 1;");
+        System.out.println("  Line 4: int b = 2;");
+        System.out.println("\nInstrumented output:");
+        System.out.println("  Line " + lineA + ": int a = 1;");
+        System.out.println("  Line " + lineB + ": int b = 2;");
+        System.out.println("\nLine shift: " + (lineA - 3) + " lines");
+        System.out.println("\nInstrumented output:\n" + output);
+
+        // Check if line numbers are preserved
+        // In the original code: int a = 1 is on line 3, int b = 2 is on line 4
+        // If instrumentation preserves line numbers, they should stay on lines 3 and 4
+        // If R.inc() is inserted on a new line, they will shift down
+
+        assertTrue("int a = 1 should be found in output", lineA > 0);
+        assertTrue("int b = 2 should be found in output", lineB > 0);
+
+        // This assertion documents the CURRENT behavior.
+        // If line numbers ARE shifted, this test will fail and show the magnitude.
+        // If R.inc() is inserted on the SAME line (e.g., "R.inc(N); int a = 1;"),
+        // then lineA would be 3 and the test would pass.
+        assertEquals("Line numbers should be preserved for stack traces",
+                3, lineA);
+        assertEquals("Line numbers should be preserved for stack traces",
+                4, lineB);
+    }
+
+    /**
+     * INVESTIGATION TEST: Documents line number shifting for method entry instrumentation.
+     *
+     * Same issue as lineNumbersPreservedAfterInstrumentation test:
+     * - Method entry R.inc() is inserted on a separate line
+     * - All method body statements shift down
+     *
+     * This test is marked @Ignore until the line number issue is resolved.
+     */
+    @Test
+    @org.junit.Ignore("KNOWN ISSUE: Line numbers shift in instrumented output - impacts stack traces")
+    public void lineNumbersPreservedForMethodEntry() {
+        String source = "class Y {\n"                // line 1
+                + "    void bar() {\n"                // line 2
+                + "        doWork();\n"               // line 3
+                + "    }\n"                           // line 4
+                + "}\n";                              // line 5
+
+        String output = AstInstrumenter.instrument(source, RECORDER_PREFIX, INIT_STRING);
+
+        String[] lines = output.split("\n");
+        int lineDoWork = -1;
+
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].contains("doWork()")) {
+                lineDoWork = i + 1;
+                break;
+            }
+        }
+
+        System.out.println("=== Method Entry Line Number Investigation ===");
+        System.out.println("Original: doWork() on line 3");
+        System.out.println("Instrumented: doWork() on line " + lineDoWork);
+        System.out.println("Line shift: " + (lineDoWork - 3));
+
+        assertTrue("doWork() should be found", lineDoWork > 0);
+        assertEquals("Method body statements should preserve line numbers",
+                3, lineDoWork);
+    }
+
+    // ========== METHOD PARAMETER EXTRACTION ==========
+
+    /**
+     * Tests that method parameters are extracted and registered in the session.
+     * Previously, buildMethodSignature passed null for parameters — this caused
+     * coverage reports to show method signatures without parameter types.
+     */
+    @Test
+    public void sessionMethodParametersExtracted() throws Exception {
+        String source = "class Foo {\n"
+                + "    void process(String name, int count, boolean flag) {\n"
+                + "        System.out.println(name);\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        ArgumentCaptor<MethodSignature> sigCaptor = ArgumentCaptor.forClass(MethodSignature.class);
+        verify(session, atLeastOnce()).enterMethod(
+                any(),
+                any(),
+                sigCaptor.capture(),
+                anyBoolean(),
+                any(),
+                anyBoolean(),
+                anyInt(),
+                any());
+
+        MethodSignature sig = sigCaptor.getValue();
+        assertNotNull("Method signature should not be null", sig);
+        assertEquals("Method name should be process", "process", sig.getName());
+
+        org.openclover.core.api.registry.ParameterInfo[] params = sig.getParameters();
+        assertNotNull("Parameters should not be null", params);
+        assertEquals("Should have 3 parameters", 3, params.length);
+
+        assertEquals("First parameter type should be String", "String", params[0].getType());
+        assertEquals("First parameter name should be name", "name", params[0].getName());
+
+        assertEquals("Second parameter type should be int", "int", params[1].getType());
+        assertEquals("Second parameter name should be count", "count", params[1].getName());
+
+        assertEquals("Third parameter type should be boolean", "boolean", params[2].getType());
+        assertEquals("Third parameter name should be flag", "flag", params[2].getName());
+    }
+
+    /**
+     * Tests that constructor parameters are extracted and registered in the session.
+     */
+    @Test
+    public void sessionConstructorParametersExtracted() throws Exception {
+        String source = "class Foo {\n"
+                + "    Foo(String name, int value) {\n"
+                + "        System.out.println(name);\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        ArgumentCaptor<MethodSignature> sigCaptor = ArgumentCaptor.forClass(MethodSignature.class);
+        verify(session, atLeastOnce()).enterMethod(
+                any(),
+                any(),
+                sigCaptor.capture(),
+                anyBoolean(),
+                any(),
+                anyBoolean(),
+                anyInt(),
+                any());
+
+        MethodSignature sig = sigCaptor.getValue();
+        assertNotNull("Constructor signature should not be null", sig);
+        assertEquals("Constructor name should be Foo", "Foo", sig.getName());
+
+        org.openclover.core.api.registry.ParameterInfo[] params = sig.getParameters();
+        assertNotNull("Parameters should not be null", params);
+        assertEquals("Should have 2 parameters", 2, params.length);
+
+        assertEquals("First parameter type should be String", "String", params[0].getType());
+        assertEquals("First parameter name should be name", "name", params[0].getName());
+
+        assertEquals("Second parameter type should be int", "int", params[1].getType());
+        assertEquals("Second parameter name should be value", "value", params[1].getName());
+    }
+
+    /**
+     * Tests that varargs parameters are handled correctly (e.g., String...).
+     */
+    @Test
+    public void sessionVarargsParametersExtracted() throws Exception {
+        String source = "class Foo {\n"
+                + "    void log(String format, Object... args) {\n"
+                + "        System.out.println(format);\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        ArgumentCaptor<MethodSignature> sigCaptor = ArgumentCaptor.forClass(MethodSignature.class);
+        verify(session, atLeastOnce()).enterMethod(
+                any(),
+                any(),
+                sigCaptor.capture(),
+                anyBoolean(),
+                any(),
+                anyBoolean(),
+                anyInt(),
+                any());
+
+        MethodSignature sig = sigCaptor.getValue();
+        assertNotNull("Method signature should not be null", sig);
+
+        org.openclover.core.api.registry.ParameterInfo[] params = sig.getParameters();
+        assertNotNull("Parameters should not be null", params);
+        assertEquals("Should have 2 parameters", 2, params.length);
+
+        assertEquals("First parameter type should be String", "String", params[0].getType());
+        assertEquals("Second parameter type should be Object... (varargs)", "Object...", params[1].getType());
+    }
+
+    /**
+     * Tests that generic parameters are extracted with full type information.
+     */
+    @Test
+    public void sessionGenericParametersExtracted() throws Exception {
+        String source = "class Foo {\n"
+                + "    void handle(java.util.List<String> items, java.util.Map<String, Integer> map) {\n"
+                + "        System.out.println(items);\n"
+                + "    }\n"
+                + "}\n";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        ArgumentCaptor<MethodSignature> sigCaptor = ArgumentCaptor.forClass(MethodSignature.class);
+        verify(session, atLeastOnce()).enterMethod(
+                any(),
+                any(),
+                sigCaptor.capture(),
+                anyBoolean(),
+                any(),
+                anyBoolean(),
+                anyInt(),
+                any());
+
+        MethodSignature sig = sigCaptor.getValue();
+        assertNotNull("Method signature should not be null", sig);
+
+        org.openclover.core.api.registry.ParameterInfo[] params = sig.getParameters();
+        assertNotNull("Parameters should not be null", params);
+        assertEquals("Should have 2 parameters", 2, params.length);
+
+        assertEquals("First parameter type should include generics", "java.util.List<String>", params[0].getType());
+        assertEquals("Second parameter type should include generics", "java.util.Map<String,Integer>", params[1].getType());
+    }
+
+    // ========== TERNARY EXPRESSION BRANCH TRACKING ==========
+
+    /**
+     * Tests that ternary/conditional expressions track branches using iget pattern.
+     * Ternary expressions contribute to cyclomatic complexity but were not instrumented for branch coverage.
+     * The condition should be wrapped with the iget pattern: (((condition)&&(R.iget(N)!=0|true))||(R.iget(N+1)==0&false))
+     */
+    @Test
+    public void ternaryExpressionInstrumentedWithBranchTracking() throws Exception {
+        String source = "class Foo { String bar(int x) { return x > 0 ? \"pos\" : \"neg\"; } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Must contain iget pattern for branch tracking
+        assertTrue("Ternary condition must be wrapped with iget pattern: " + result,
+                result.contains(".iget("));
+        // Session should register a branch (not just a statement)
+        verify(session, atLeastOnce()).addBranch(any(), any(), anyBoolean(), anyInt(), any());
+        assertParseable(result);
+    }
+
+    /**
+     * Tests that nested ternary expressions get branch tracking.
+     */
+    @Test
+    public void nestedTernaryExpressionInstrumentedWithBranchTracking() throws Exception {
+        String source = "class Foo { int bar(int a, int b) { return a == (b == 2 ? 1 : 2) ? 3 : 4; } }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Both ternaries should have iget pattern
+        int igetCount = countOccurrences(result, ".iget(");
+        assertTrue("Nested ternaries should have multiple iget calls (at least 2): " + igetCount,
+                igetCount >= 4); // 2 ternaries × 2 iget calls each
+        // Session should register multiple branches
+        verify(session, atLeast(2)).addBranch(any(), any(), anyBoolean(), anyInt(), any());
+        assertParseable(result);
+    }
+
+    /**
+     * Tests that ternary expressions in CLOVER:OFF regions are NOT instrumented.
+     */
+    @Test
+    public void ternaryInCloverOffNotInstrumented() throws Exception {
+        String source = "class Foo {\n"
+                + "  String bar(int x) {\n"
+                + "    /* CLOVER:OFF */\n"
+                + "    return x > 0 ? \"pos\" : \"neg\";\n"
+                + "    /* CLOVER:ON */\n"
+                + "  }\n"
+                + "}";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), source);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+
+        String result = output.toString();
+        // Should NOT have iget pattern in the CLOVER:OFF region
+        assertFalse("Ternary in CLOVER:OFF should not be instrumented: " + result,
+                result.contains(".iget("));
+        // Session should NOT register a branch for the ternary
+        verify(session, times(0)).addBranch(any(), any(), anyBoolean(), anyInt(), any());
+        assertParseable(result);
+    }
+
+    @Test
+    public void parseErrorIncludesLineAndColumnDetails() {
+        String invalidSource = "class Foo { this is not valid java }";
+        InstrumentationSource instrSource = new StringInstrumentationSource(new File(TEST_FILE_NAME), invalidSource);
+        StringWriter output = new StringWriter();
+
+        InstrumentationSession session = createFullMockSession();
+        JavaInstrumentationConfig config = new JavaInstrumentationConfig();
+        config.setInitstring(INIT_STRING);
+
+        try {
+            AstInstrumenter.instrument(instrSource, output, session, config, null, null);
+            fail("Should throw CloverException for invalid Java source");
+        } catch (CloverException e) {
+            String msg = e.getMessage();
+            assertTrue("Error should mention the file: " + msg,
+                    msg.contains(TEST_FILE_NAME));
+            assertTrue("Error should include line number: " + msg,
+                    msg.contains("line"));
+        }
     }
 }
