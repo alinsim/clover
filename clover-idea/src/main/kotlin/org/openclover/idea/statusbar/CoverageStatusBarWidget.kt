@@ -19,6 +19,7 @@ class CoverageStatusBarWidget(private val project: Project) : StatusBarWidget,
     StatusBarWidget.TextPresentation {
 
     private var statusBar: StatusBar? = null
+    @Volatile
     private var currentText = "Clover: —"
 
     override fun ID(): String = CoverageStatusBarWidgetFactory.WIDGET_ID
@@ -31,8 +32,8 @@ class CoverageStatusBarWidget(private val project: Project) : StatusBarWidget,
             service.coverageManager.state.collectLatest { state ->
                 currentText = when (state) {
                     is CoverageState.Loaded -> {
-                        val pct = state.projectInfo.metrics.pcCoveredElements * 100
-                        "Clover: ${"%.1f".format(pct)}%"
+                        val raw = state.projectInfo.metrics.pcCoveredElements
+                        if (raw < 0) "Clover: N/A" else "Clover: ${"%.1f".format(raw * 100)}%"
                     }
                     is CoverageState.Loading -> "Clover: loading..."
                     is CoverageState.Error -> "Clover: error"

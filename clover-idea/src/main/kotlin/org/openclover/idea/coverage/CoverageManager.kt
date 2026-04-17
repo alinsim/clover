@@ -192,11 +192,11 @@ class CoverageManager(
                             if (existing == null || status == LineCoverageStatus.COVERED) {
                                 lineStatuses[line] = status
                             }
-                            // Update detail with statement hits (preserve method hits if present)
+                            // Update detail: max of hits for multi-statement lines, preserve method hits
                             val existingDetail = lineDetails[line]
                             lineDetails[line] = LineCoverageDetail(
                                 status = lineStatuses[line] ?: status,
-                                statementHits = hits,
+                                statementHits = maxOf(hits, existingDetail?.statementHits ?: 0),
                                 methodHits = existingDetail?.methodHits ?: -1,
                             )
                         }

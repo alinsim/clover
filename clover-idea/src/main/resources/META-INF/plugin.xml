@@ -97,7 +97,7 @@
                     class="org.openclover.idea.actions.ToggleCoverageDisplayAction"
                     text="Toggle Coverage Display"
                     description="Show or hide coverage data in editors">
-                <keyboard-shortcut first-keystroke="control shift C" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="control shift F6" keymap="$default"/>
             </action>
 
             <action id="OpenClover.ToggleGutter"
