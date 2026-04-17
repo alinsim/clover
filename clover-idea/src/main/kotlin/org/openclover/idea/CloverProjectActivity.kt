@@ -1,5 +1,6 @@
 package org.openclover.idea
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
@@ -39,9 +40,13 @@ class CloverProjectActivity : ProjectActivity {
             coverageManager.startAutoRefresh()
         }
 
-        // Register build system hooks
+        // Register build system hooks (CompilerManager is an EDT API)
         if (service.isBuildWithClover) {
-            CloverCompileTask.register(project)
+            ApplicationManager.getApplication().invokeLater {
+                if (!project.isDisposed) {
+                    CloverCompileTask.register(project)
+                }
+            }
         }
     }
 }
