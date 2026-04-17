@@ -91,18 +91,43 @@ class CloverProgramRunner : GenericProgramRunner<com.intellij.execution.configur
                     indicator.isIndeterminate = true
                     indicator.text = "Compiling $instrumentedCount instrumented files..."
 
-                    // Build compilation classpath: project classpath + clover-runtime
-                    val projectClasspath = if (state is JavaCommandLine) {
-                        state.javaParameters.classPath.pathList.map { File(it) }
-                    } else {
-                        emptyList()
+                    // Build compilation classpath: JavaParameters classpath + module outputs + clover-runtime
+                    val cpEntries = mutableListOf<File>()
+
+                    // 1. JavaParameters classpath (test execution classpath — includes most deps)
+                    if (state is JavaCommandLine) {
+                        cpEntries.addAll(state.javaParameters.classPath.pathList.map { File(it) })
                     }
+
+                    // 2. Module output directories (compiled classes from the project itself)
+                    ReadAction.compute<Unit, RuntimeException> {
+                        for (module in ModuleManager.getInstance(project).modules) {
+                            val rootManager = ModuleRootManager.getInstance(module)
+                            // Production output
+                            rootManager.modifiableModel.let { model ->
+                                model.dispose()
+                            }
+                            val compilerOutput = rootManager.contentEntries
+                                .flatMap { it.sourceFolders.toList() }
+                            // Add all module dependency classpath entries
+                            rootManager.orderEntries().classesRoots.forEach { root ->
+                                val path = root.path
+                                if (path.endsWith("!/")) {
+                                    cpEntries.add(File(path.removeSuffix("!/")))
+                                } else {
+                                    cpEntries.add(File(path))
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Clover runtime JAR
                     val runtimeJar = CloverRuntimeLocator.findRuntimeJar()
-                    val fullClasspath = if (runtimeJar != null) {
-                        projectClasspath + File(runtimeJar)
-                    } else {
-                        projectClasspath
+                    if (runtimeJar != null) {
+                        cpEntries.add(File(runtimeJar))
                     }
+
+                    val fullClasspath = cpEntries.distinctBy { it.absolutePath }
 
                     val result = InstrumentedSourceCompiler.compile(
                         sourceDir = instrumentedDir,
