@@ -111,6 +111,11 @@ private class CloudPanel(private val project: Project) : JPanel(FlowLayout(FlowL
         }
     }
 
+    /**
+     * Calculate risk score for a file.
+     * Risk = (1 - coverage%) * statement count
+     * Higher risk means more uncovered code that should be tested.
+     */
     private fun riskScore(file: FileCoverageInfo): Float =
         (1f - file.percentCovered) * file.numStatements
 }

@@ -61,6 +61,10 @@
         <!-- Program runner for Clover coverage executor -->
         <programRunner implementation="org.openclover.idea.execution.CloverProgramRunner"/>
 
+        <!-- Run configuration extension: adds Clover settings tab -->
+        <runConfigurationExtension
+            implementation="org.openclover.idea.execution.CloverRunConfigurationExtension"/>
+
         <!-- Custom file editors for coverage visualizations -->
         <!-- Coverage visualization editors -->
         <fileEditorProvider

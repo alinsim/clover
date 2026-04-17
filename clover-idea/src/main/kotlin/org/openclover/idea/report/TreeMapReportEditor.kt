@@ -68,11 +68,12 @@ class TreeMapReportEditor(private val project: Project) : UserDataHolderBase(), 
 
 /**
  * Custom panel that renders a squarified treemap of file coverage.
- * Uses a simple slice-and-dice layout algorithm.
+ * Uses the SquarifiedTreeMap algorithm for better aspect ratios.
  */
 private class TreeMapPanel(private val project: Project) : JPanel() {
 
-    private var files: List<FileCoverageInfo> = emptyList()
+    private var treeMapRects: List<TreeMapRect> = emptyList()
+    private var fileInfoMap: Map<String, FileCoverageInfo> = emptyMap()
 
     init {
         preferredSize = Dimension(800, 600)
@@ -83,31 +84,35 @@ private class TreeMapPanel(private val project: Project) : JPanel() {
         val service = CloverProjectService.getInstance(project)
         val state = service.coverageManager.state.value
         if (state is CoverageState.Loaded) {
-            files = state.fileCoverage.values
-                .filter { it.numStatements > 0 }
-                .sortedByDescending { it.numStatements }
+            val files = state.fileCoverage.values.filter { it.numStatements > 0 }
+
+            // Build treemap items
+            val items = files.map { file ->
+                TreeMapItem(
+                    label = file.filePath,
+                    size = file.numStatements.toDouble()
+                )
+            }
+
+            // Compute layout
+            val bounds = java.awt.Rectangle(0, 0, width.coerceAtLeast(800), height.coerceAtLeast(600))
+            treeMapRects = SquarifiedTreeMap.layout(items, bounds)
+
+            // Build lookup map for coverage info
+            fileInfoMap = files.associateBy { it.filePath }
         }
     }
 
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
-        if (files.isEmpty()) return
+        if (treeMapRects.isEmpty()) return
 
         val g2 = g as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-        val totalStatements = files.sumOf { it.numStatements }.toFloat()
-        if (totalStatements == 0f) return
-
-        // Simple slice-and-dice treemap layout
-        var x = 0f
-        val y = 0f
-        val w = width.toFloat()
-        val h = height.toFloat()
-
-        for (file in files) {
-            val fraction = file.numStatements / totalStatements
-            val rectWidth = w * fraction
+        for (treeMapRect in treeMapRects) {
+            val file = fileInfoMap[treeMapRect.item.label] ?: continue
+            val rect = treeMapRect.rect
 
             // Color by coverage: green (high) → yellow (mid) → red (low)
             val pct = file.percentCovered
@@ -118,22 +123,22 @@ private class TreeMapPanel(private val project: Project) : JPanel() {
             }
 
             g2.color = color
-            g2.fillRect(x.toInt(), y.toInt(), rectWidth.toInt().coerceAtLeast(1), h.toInt())
+            g2.fillRect(rect.x, rect.y, rect.width, rect.height)
 
             g2.color = JBColor.background()
-            g2.drawRect(x.toInt(), y.toInt(), rectWidth.toInt(), h.toInt())
+            g2.drawRect(rect.x, rect.y, rect.width, rect.height)
 
-            // Draw file name if rectangle is wide enough
-            if (rectWidth > 60) {
+            // Draw file name if rectangle is large enough
+            if (rect.width > 60 && rect.height > 20) {
                 g2.color = JBColor.foreground()
                 val fileName = file.filePath.substringAfterLast('/')
                 val pctText = "%.0f%%".format(pct * 100)
                 g2.font = g2.font.deriveFont(10f)
-                g2.drawString(fileName, x.toInt() + 4, y.toInt() + 14)
-                g2.drawString(pctText, x.toInt() + 4, y.toInt() + 26)
+                g2.drawString(fileName, rect.x + 4, rect.y + 14)
+                if (rect.height > 30) {
+                    g2.drawString(pctText, rect.x + 4, rect.y + 26)
+                }
             }
-
-            x += rectWidth
         }
     }
 }
