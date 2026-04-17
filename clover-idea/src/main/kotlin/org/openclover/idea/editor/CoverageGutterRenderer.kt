@@ -3,12 +3,14 @@ package org.openclover.idea.editor
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.editor.markup.GutterIconRenderer
 import org.openclover.idea.coverage.FileCoverageInfo
+import org.openclover.idea.coverage.LineCoverageDetail
 import org.openclover.idea.coverage.LineCoverageStatus
 import javax.swing.Icon
 
 /**
  * Renders a coverage status icon in the editor gutter for a single line.
  * Shows green (covered), red (uncovered), or yellow (partial branch) icons.
+ * Tooltip shows detailed hit counts and branch information.
  */
 class CoverageGutterRenderer(
     private val status: LineCoverageStatus,
@@ -22,7 +24,12 @@ class CoverageGutterRenderer(
         LineCoverageStatus.PARTIAL -> CoverageIcons.PARTIAL
     }
 
-    override fun getTooltipText(): String = when (status) {
+    override fun getTooltipText(): String {
+        val detail = fileCoverage.lineDetails[line]
+        return detail?.toTooltip(line) ?: defaultTooltip()
+    }
+
+    private fun defaultTooltip(): String = when (status) {
         LineCoverageStatus.COVERED -> "Line $line: covered"
         LineCoverageStatus.UNCOVERED -> "Line $line: not covered"
         LineCoverageStatus.PARTIAL -> "Line $line: partially covered (branch)"

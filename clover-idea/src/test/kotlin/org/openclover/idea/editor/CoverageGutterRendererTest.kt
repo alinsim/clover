@@ -13,6 +13,7 @@ class CoverageGutterRendererTest {
     private val fileCoverage = FileCoverageInfo(
         filePath = "/test/Foo.java",
         lineStatuses = mapOf(1 to LineCoverageStatus.COVERED),
+            lineDetails = emptyMap(),
         numStatements = 10,
         numCoveredStatements = 5,
         numBranches = 2,

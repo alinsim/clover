@@ -47,6 +47,11 @@
                     icon="/icons/svg/test.svg"
                     factoryClass="org.openclover.idea.testexplorer.TestExplorerToolWindowFactory"/>
 
+        <!-- Status bar widget: coverage % in bottom bar -->
+        <statusBarWidgetFactory
+            id="OpenCloverCoverage"
+            implementation="org.openclover.idea.statusbar.CoverageStatusBarWidgetFactory"/>
+
         <!-- Clover coverage executor: "Run with Clover" button -->
         <executor implementation="org.openclover.idea.execution.CloverCoverageExecutor"/>
 
@@ -79,7 +84,9 @@
                     class="org.openclover.idea.actions.RefreshCoverageAction"
                     text="Refresh Coverage"
                     description="Reload coverage data from the database"
-                    icon="/icons/svg/refresh.svg"/>
+                    icon="/icons/svg/refresh.svg">
+                <keyboard-shortcut first-keystroke="control shift F5" keymap="$default"/>
+            </action>
 
             <action id="OpenClover.ToggleInstrumentation"
                     class="org.openclover.idea.actions.ToggleInstrumentationAction"
@@ -89,7 +96,9 @@
             <action id="OpenClover.ToggleCoverageDisplay"
                     class="org.openclover.idea.actions.ToggleCoverageDisplayAction"
                     text="Toggle Coverage Display"
-                    description="Show or hide coverage data in editors"/>
+                    description="Show or hide coverage data in editors">
+                <keyboard-shortcut first-keystroke="control shift C" keymap="$default"/>
+            </action>
 
             <action id="OpenClover.ToggleGutter"
                     class="org.openclover.idea.actions.ToggleGutterAction"

@@ -37,6 +37,7 @@ class CoverageTextAttributesTest {
         val coverage = FileCoverageInfo(
             filePath = "/project/src/main/java/Foo.java",
             lineStatuses = mapOf(1 to LineCoverageStatus.COVERED),
+            lineDetails = emptyMap(),
             numStatements = 1,
             numCoveredStatements = 1,
             numBranches = 0,

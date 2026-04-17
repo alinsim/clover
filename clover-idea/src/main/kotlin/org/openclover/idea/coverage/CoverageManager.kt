@@ -168,19 +168,37 @@ class CoverageManager(
         coverageData: CoverageData?,
     ): FileCoverageInfo {
         val lineStatuses = mutableMapOf<Int, LineCoverageStatus>()
+        val lineDetails = mutableMapOf<Int, LineCoverageDetail>()
 
         if (coverageData != null) {
             for (classInfo in fileInfo.classes) {
                 for (method in classInfo.methods) {
+                    // Record method entry on the method's start line
+                    val methodHits = coverageData.getHitCount(method.dataIndex)
+                    val methodLine = method.startLine
+                    if (methodLine > 0) {
+                        lineDetails[methodLine] = LineCoverageDetail(
+                            status = if (methodHits > 0) LineCoverageStatus.COVERED else LineCoverageStatus.UNCOVERED,
+                            methodHits = methodHits,
+                        )
+                        lineStatuses[methodLine] = if (methodHits > 0) LineCoverageStatus.COVERED else LineCoverageStatus.UNCOVERED
+                    }
+
                     for (stmt in method.statements) {
                         val hits = coverageData.getHitCount(stmt.dataIndex)
                         val status = if (hits > 0) LineCoverageStatus.COVERED else LineCoverageStatus.UNCOVERED
                         for (line in stmt.startLine..stmt.endLine) {
-                            // Covered takes precedence over uncovered
                             val existing = lineStatuses[line]
                             if (existing == null || status == LineCoverageStatus.COVERED) {
                                 lineStatuses[line] = status
                             }
+                            // Update detail with statement hits (preserve method hits if present)
+                            val existingDetail = lineDetails[line]
+                            lineDetails[line] = LineCoverageDetail(
+                                status = lineStatuses[line] ?: status,
+                                statementHits = hits,
+                                methodHits = existingDetail?.methodHits ?: -1,
+                            )
                         }
                     }
                     for (branch in method.branches) {
@@ -196,6 +214,15 @@ class CoverageManager(
                             if (existing == null || status.ordinal < (existing.ordinal)) {
                                 lineStatuses[line] = status
                             }
+                            // Update detail with branch info
+                            val existingDetail = lineDetails[line]
+                            lineDetails[line] = LineCoverageDetail(
+                                status = lineStatuses[line] ?: status,
+                                statementHits = existingDetail?.statementHits ?: 0,
+                                branchTrueHits = trueHits,
+                                branchFalseHits = falseHits,
+                                methodHits = existingDetail?.methodHits ?: -1,
+                            )
                         }
                     }
                 }
@@ -206,6 +233,7 @@ class CoverageManager(
         return FileCoverageInfo(
             filePath = fileInfo.physicalFile?.absolutePath ?: "",
             lineStatuses = lineStatuses,
+            lineDetails = lineDetails,
             numStatements = metrics?.numStatements ?: 0,
             numCoveredStatements = metrics?.numCoveredStatements ?: 0,
             numBranches = metrics?.numBranches ?: 0,
@@ -253,6 +281,7 @@ enum class LineCoverageStatus {
 data class FileCoverageInfo(
     val filePath: String,
     val lineStatuses: Map<Int, LineCoverageStatus>,
+    val lineDetails: Map<Int, LineCoverageDetail>,
     val numStatements: Int,
     val numCoveredStatements: Int,
     val numBranches: Int,

@@ -21,6 +21,7 @@ class FileCoverageInfoTest {
         val info = FileCoverageInfo(
             filePath = "/test/Foo.java",
             lineStatuses = emptyMap(),
+            lineDetails = emptyMap(),
             numStatements = 0,
             numCoveredStatements = 0,
             numBranches = 0,
@@ -40,6 +41,7 @@ class FileCoverageInfoTest {
                 2 to LineCoverageStatus.UNCOVERED,
                 3 to LineCoverageStatus.PARTIAL,
             ),
+            lineDetails = emptyMap(),
             numStatements = 3,
             numCoveredStatements = 1,
             numBranches = 1,
