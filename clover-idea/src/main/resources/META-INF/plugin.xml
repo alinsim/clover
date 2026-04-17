@@ -97,11 +97,6 @@
                 <keyboard-shortcut first-keystroke="control shift F5" keymap="$default"/>
             </action>
 
-            <action id="OpenClover.ToggleInstrumentation"
-                    class="org.openclover.idea.actions.ToggleInstrumentationAction"
-                    text="Toggle Instrumentation"
-                    description="Enable or disable Clover instrumentation"/>
-
             <action id="OpenClover.ToggleCoverageDisplay"
                     class="org.openclover.idea.actions.ToggleCoverageDisplayAction"
                     text="Toggle Coverage Display"

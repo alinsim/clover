@@ -202,7 +202,7 @@ private class CoveragePercentRenderer : DefaultTableCellRenderer() {
     ): Component {
         val component = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
         val pct = (value as? Float) ?: 0f
-        text = "%.1f%%".format(pct * 100)
+        text = if (pct < 0) "N/A" else "%.1f%%".format(pct * 100)
         if (!isSelected) {
             foreground = when {
                 pct >= 0.8f -> JBColor(java.awt.Color(0x2E, 0x7D, 0x32), java.awt.Color(0x66, 0xBB, 0x6A))
