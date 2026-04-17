@@ -94,18 +94,30 @@ class CoverageManager(
     }
 
     private suspend fun loadDatabase() {
-        val initString = config.initString
-        if (initString.isBlank()) {
+        // Auto-detect database location if not explicitly configured
+        val projectBasePath = project.basePath
+        val locator = if (projectBasePath != null) CoverageDbLocator(File(projectBasePath)) else null
+        val resolvedPath = locator?.resolveInitString(config.initString) ?: config.initString
+
+        if (resolvedPath.isBlank()) {
             _state.value = CoverageState.Empty
             return
         }
 
-        val dbFile = File(initString)
+        val dbFile = File(resolvedPath)
         if (!dbFile.exists()) {
-            thisLogger().debug("Coverage database not found: $initString")
+            thisLogger().debug("Coverage database not found: $resolvedPath")
             _state.value = CoverageState.Empty
             return
         }
+
+        // Update config with resolved path so user sees it in settings
+        if (config.initString.isBlank() && resolvedPath.isNotBlank()) {
+            config.initString = resolvedPath
+            thisLogger().info("Auto-detected coverage database: $resolvedPath")
+        }
+
+        val initString = resolvedPath
 
         _state.value = CoverageState.Loading
 
