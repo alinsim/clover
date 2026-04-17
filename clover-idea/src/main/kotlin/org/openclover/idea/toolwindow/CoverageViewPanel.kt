@@ -1,6 +1,7 @@
 package org.openclover.idea.toolwindow
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
@@ -90,7 +91,12 @@ class CoverageViewPanel(
         val service = CloverProjectService.getInstance(project)
         service.coroutineScope.launch {
             service.coverageManager.state.collectLatest { state ->
-                updateView(state)
+                // Swing component updates must happen on EDT
+                ApplicationManager.getApplication().invokeLater {
+                    if (!project.isDisposed) {
+                        updateView(state)
+                    }
+                }
             }
         }
     }

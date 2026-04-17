@@ -9,8 +9,10 @@ import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -47,13 +49,16 @@ class CoverageEditorAnnotator(
             fileEditorListener,
         )
 
-        // React to coverage state changes
+        // React to coverage state changes — must dispatch UI work to EDT
         val service = CloverProjectService.getInstance(project)
         coroutineScope.launch {
             service.coverageManager.state.collectLatest { state ->
-                when (state) {
-                    is CoverageState.Loaded -> annotateAllEditors(state)
-                    else -> clearAllEditors()
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed) return@invokeLater
+                    when (state) {
+                        is CoverageState.Loaded -> annotateAllEditors(state)
+                        else -> clearAllEditors()
+                    }
                 }
             }
         }
@@ -119,20 +124,18 @@ class CoverageEditorAnnotator(
     }
 
     /**
-     * Handles file tab switches: when a file is selected, ensure its editor
-     * has coverage annotations. This complements EditorFactoryListener which
-     * only fires on editor creation, not tab switches.
+     * Handles file tab switches via selectionChanged (fires on every tab switch).
+     * fileOpened only fires on first open, not tab switches.
      */
     private val fileEditorListener = object : FileEditorManagerListener {
-        override fun fileOpened(source: FileEditorManager, file: VirtualFile) {
+        override fun selectionChanged(event: FileEditorManagerEvent) {
+            val newFile = event.newFile ?: return
             val state = CloverProjectService.getInstance(project).coverageManager.state.value
             if (state is CoverageState.Loaded) {
-                // Find the editor for this file and annotate it
                 for (editor in EditorFactory.getInstance().allEditors) {
                     if (editor.project != project) continue
-                    val doc = editor.document
-                    val editorFile = FileDocumentManager.getInstance().getFile(doc)
-                    if (editorFile == file) {
+                    val editorFile = FileDocumentManager.getInstance().getFile(editor.document)
+                    if (editorFile == newFile) {
                         annotateEditor(editor, state)
                     }
                 }

@@ -41,6 +41,7 @@ class CoverageManager(
     val state: StateFlow<CoverageState> = _state.asStateFlow()
 
     private var autoRefreshJob: Job? = null
+    private val dbLocator: CoverageDbLocator? = project.basePath?.let { CoverageDbLocator(File(it)) }
 
     /**
      * Load or reload coverage data from the configured database path.
@@ -95,9 +96,7 @@ class CoverageManager(
 
     private suspend fun loadDatabase() {
         // Auto-detect database location if not explicitly configured
-        val projectBasePath = project.basePath
-        val locator = if (projectBasePath != null) CoverageDbLocator(File(projectBasePath)) else null
-        val resolvedPath = locator?.resolveInitString(config.initString) ?: config.initString
+        val resolvedPath = dbLocator?.resolveInitString(config.initString) ?: config.initString
 
         if (resolvedPath.isBlank()) {
             _state.value = CoverageState.Empty
@@ -111,9 +110,7 @@ class CoverageManager(
             return
         }
 
-        // Update config with resolved path so user sees it in settings
         if (config.initString.isBlank() && resolvedPath.isNotBlank()) {
-            config.initString = resolvedPath
             thisLogger().info("Auto-detected coverage database: $resolvedPath")
         }
 

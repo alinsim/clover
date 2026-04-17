@@ -10,7 +10,7 @@ import org.openclover.idea.coverage.LineCoverageStatus
  * Tests for CoverageEditorAnnotator behavior.
  * These test the annotation logic itself, not the IntelliJ integration.
  */
-class CoverageEditorAnnotatorIntegrationTest {
+class CoverageTextAttributesTest {
 
     @Test
     fun textAttributesAreDifferentForEachStatus() {

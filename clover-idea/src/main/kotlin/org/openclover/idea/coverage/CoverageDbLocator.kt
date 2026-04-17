@@ -1,5 +1,6 @@
 package org.openclover.idea.coverage
 
+import com.intellij.openapi.diagnostic.thisLogger
 import java.io.File
 
 /**
@@ -52,6 +53,10 @@ class CoverageDbLocator(private val projectBaseDir: File) {
             if (explicitFile.exists() && explicitFile.isFile) {
                 return explicitFile.absolutePath
             }
+            // Explicit path was configured but file is missing (e.g., after mvn clean)
+            thisLogger().warn(
+                "Configured coverage database not found: $explicitInitString — falling back to auto-detection"
+            )
         }
 
         // Fall back to auto-detection
