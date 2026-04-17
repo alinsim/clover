@@ -85,49 +85,30 @@ class CloverProgramRunner : GenericProgramRunner<com.intellij.execution.configur
         val classesDir = File(projectBasePath, ".clover/classes")
         var compilationSuccess = false
 
+        // Capture the FULL classpath on EDT before entering modal task
+        // This is the test execution classpath which includes ALL Maven/Gradle dependencies
+        val compilationClasspath = mutableListOf<File>()
+        if (state is JavaCommandLine) {
+            for (path in state.javaParameters.classPath.pathList) {
+                compilationClasspath.add(File(path))
+            }
+        }
+        // Add clover-runtime for the org_openclover_runtime references
+        val runtimeJar = CloverRuntimeLocator.findRuntimeJar()
+        if (runtimeJar != null) {
+            compilationClasspath.add(File(runtimeJar))
+        }
+
+        thisLogger().info("Compilation classpath has ${compilationClasspath.size} entries")
+        thisLogger().debug("Classpath: ${compilationClasspath.take(5).map { it.name }}...")
+
         if (instrumentedCount > 0) {
             ProgressManager.getInstance().run(object : Task.Modal(project, "Compiling Instrumented Sources", true) {
                 override fun run(indicator: ProgressIndicator) {
                     indicator.isIndeterminate = true
                     indicator.text = "Compiling $instrumentedCount instrumented files..."
 
-                    // Build compilation classpath: JavaParameters classpath + module outputs + clover-runtime
-                    val cpEntries = mutableListOf<File>()
-
-                    // 1. JavaParameters classpath (test execution classpath — includes most deps)
-                    if (state is JavaCommandLine) {
-                        cpEntries.addAll(state.javaParameters.classPath.pathList.map { File(it) })
-                    }
-
-                    // 2. Module output directories (compiled classes from the project itself)
-                    ReadAction.compute<Unit, RuntimeException> {
-                        for (module in ModuleManager.getInstance(project).modules) {
-                            val rootManager = ModuleRootManager.getInstance(module)
-                            // Production output
-                            rootManager.modifiableModel.let { model ->
-                                model.dispose()
-                            }
-                            val compilerOutput = rootManager.contentEntries
-                                .flatMap { it.sourceFolders.toList() }
-                            // Add all module dependency classpath entries
-                            rootManager.orderEntries().classesRoots.forEach { root ->
-                                val path = root.path
-                                if (path.endsWith("!/")) {
-                                    cpEntries.add(File(path.removeSuffix("!/")))
-                                } else {
-                                    cpEntries.add(File(path))
-                                }
-                            }
-                        }
-                    }
-
-                    // 3. Clover runtime JAR
-                    val runtimeJar = CloverRuntimeLocator.findRuntimeJar()
-                    if (runtimeJar != null) {
-                        cpEntries.add(File(runtimeJar))
-                    }
-
-                    val fullClasspath = cpEntries.distinctBy { it.absolutePath }
+                    val fullClasspath = compilationClasspath
 
                     val result = InstrumentedSourceCompiler.compile(
                         sourceDir = instrumentedDir,
