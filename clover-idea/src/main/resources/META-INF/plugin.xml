@@ -61,9 +61,11 @@
         <!-- Program runner for Clover coverage executor -->
         <programRunner implementation="org.openclover.idea.execution.CloverProgramRunner"/>
 
-        <!-- Run configuration extension: adds Clover settings tab -->
+        <!-- Run configuration extension: disabled due to ClassCastException in 2026.1
+             The executor + program runner provide the primary "Run with Clover" UX.
         <runConfigurationExtension
             implementation="org.openclover.idea.execution.CloverRunConfigurationExtension"/>
+        -->
 
         <!-- Custom file editors for coverage visualizations -->
         <!-- Coverage visualization editors -->
