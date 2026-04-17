@@ -44,6 +44,7 @@ class CoverageManager(
     private var autoRefreshJob: Job? = null
     private val dbLocator: CoverageDbLocator? = project.basePath?.let { CoverageDbLocator(File(it)) }
     private var hasNotifiedInitialLoad = false
+    private var lastDbModified: Long = 0L
 
     /**
      * Load or reload coverage data from the configured database path.
@@ -109,6 +110,13 @@ class CoverageManager(
         if (!dbFile.exists()) {
             thisLogger().debug("Coverage database not found: $resolvedPath")
             _state.value = CoverageState.Empty
+            lastDbModified = 0L
+            return
+        }
+
+        // Skip reload if the DB file hasn't been modified since last load
+        val currentModified = dbFile.lastModified()
+        if (currentModified == lastDbModified && _state.value is CoverageState.Loaded) {
             return
         }
 
@@ -137,6 +145,7 @@ class CoverageManager(
                 projectInfo = projectInfo,
                 fileCoverage = fileCoverage,
             )
+            lastDbModified = currentModified
 
             val summary = "Coverage loaded: ${fileCoverage.size} files, " +
                 "${projectInfo.metrics.numStatements} statements, " +
