@@ -15,13 +15,19 @@ import com.intellij.ui.content.ContentFactory
 class CloverToolWindowFactory : ToolWindowFactory, DumbAware {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val coveragePanel = CoverageViewPanel(project)
-        val content = ContentFactory.getInstance().createContent(
-            coveragePanel.component,
-            "Coverage",
-            false,
+        val contentFactory = ContentFactory.getInstance()
+
+        // Package tree view (primary tab)
+        val treePanel = CoverageTreePanel(project)
+        toolWindow.contentManager.addContent(
+            contentFactory.createContent(treePanel.component, "Packages", false),
         )
-        toolWindow.contentManager.addContent(content)
+
+        // Flat file table (secondary tab)
+        val tablePanel = CoverageViewPanel(project)
+        toolWindow.contentManager.addContent(
+            contentFactory.createContent(tablePanel.component, "Files", false),
+        )
     }
 
     override fun shouldBeAvailable(project: Project): Boolean = true
