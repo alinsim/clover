@@ -47,6 +47,12 @@
                     icon="/icons/svg/test.svg"
                     factoryClass="org.openclover.idea.testexplorer.TestExplorerToolWindowFactory"/>
 
+        <!-- Clover coverage executor: "Run with Clover" button -->
+        <executor implementation="org.openclover.idea.execution.CloverCoverageExecutor"/>
+
+        <!-- Program runner for Clover coverage executor -->
+        <programRunner implementation="org.openclover.idea.execution.CloverProgramRunner"/>
+
         <!-- Custom file editors for coverage visualizations -->
         <!-- Coverage visualization editors -->
         <fileEditorProvider
