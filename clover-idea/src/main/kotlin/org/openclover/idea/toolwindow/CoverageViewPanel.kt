@@ -1,8 +1,11 @@
 package org.openclover.idea.toolwindow
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -15,6 +18,8 @@ import org.openclover.idea.coverage.CoverageState
 import org.openclover.idea.coverage.FileCoverageInfo
 import java.awt.BorderLayout
 import java.awt.Component
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JTable
@@ -51,6 +56,25 @@ class CoverageViewPanel(
         }
         // Coverage % with color
         columnModel.getColumn(5).cellRenderer = CoveragePercentRenderer()
+
+    }
+
+    init {
+        // Double-click to navigate to file
+        table.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount == 2) {
+                    val row = table.rowAtPoint(e.point)
+                    if (row >= 0) {
+                        val modelRow = table.convertRowIndexToModel(row)
+                        val filePath = tableModel.getFilePathAt(modelRow)
+                        if (filePath != null) {
+                            navigateToFile(filePath)
+                        }
+                    }
+                }
+            }
+        })
     }
 
     private val panel = JPanel(BorderLayout()).apply {
@@ -101,6 +125,12 @@ class CoverageViewPanel(
         }
     }
 
+    private fun navigateToFile(filePath: String) {
+        val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath) ?: return
+        val descriptor = OpenFileDescriptor(project, virtualFile)
+        FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
+    }
+
     override fun dispose() {}
 }
 
@@ -117,6 +147,11 @@ private class CoverageTableModel : AbstractTableModel() {
     fun setFiles(newFiles: List<FileCoverageInfo>) {
         files = newFiles
         fireTableDataChanged()
+    }
+
+    fun getFilePathAt(row: Int): String? {
+        if (row < 0 || row >= files.size) return null
+        return files[row].filePath
     }
 
     override fun getRowCount(): Int = files.size
