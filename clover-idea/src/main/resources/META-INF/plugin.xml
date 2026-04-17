@@ -55,6 +55,12 @@
             implementation="org.openclover.idea.report.CloudEditorProvider"/>
     </extensions>
 
+    <projectListeners>
+        <!-- Reload coverage data after any process (test run) terminates -->
+        <listener class="org.openclover.idea.build.CoverageReloadListener"
+                  topic="com.intellij.execution.ExecutionListener"/>
+    </projectListeners>
+
     <actions>
         <!-- Main action group in the Tools menu -->
         <group id="OpenClover.MainGroup"

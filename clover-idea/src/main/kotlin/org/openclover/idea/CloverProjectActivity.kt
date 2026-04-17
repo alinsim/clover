@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.util.Disposer
+import org.openclover.idea.build.CloverCompileTask
 import org.openclover.idea.editor.CoverageEditorAnnotator
 
 /**
@@ -38,7 +39,9 @@ class CloverProjectActivity : ProjectActivity {
             coverageManager.startAutoRefresh()
         }
 
-        // TODO (.7): Register tool window
-        // TODO (.10): Register build system hooks
+        // Register build system hooks
+        if (service.isBuildWithClover) {
+            CloverCompileTask.register(project)
+        }
     }
 }
