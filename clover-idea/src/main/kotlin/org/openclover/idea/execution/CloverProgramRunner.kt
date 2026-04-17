@@ -18,6 +18,7 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.vfs.VfsUtilCore
 import org.openclover.core.cfg.instr.java.JavaInstrumentationConfig
 import org.openclover.core.instr.java.Instrumenter
+import org.openclover.idea.build.InstrumentedSourceCompiler
 import org.openclover.idea.CloverProjectService
 import org.openclover.idea.build.CloverRuntimeLocator
 import org.openclover.idea.util.CloverNotifications
@@ -79,14 +80,57 @@ class CloverProgramRunner : GenericProgramRunner<com.intellij.execution.configur
             }
         })
 
+        // Step 2: Compile instrumented sources to shadow classes
+        val instrumentedDir = File(projectBasePath, ".clover/instrumented")
+        val classesDir = File(projectBasePath, ".clover/classes")
+        var compilationSuccess = false
+
         if (instrumentedCount > 0) {
-            CloverNotifications.notifyInfo(project,
-                "Instrumented $instrumentedCount files. Running tests with coverage...")
+            ProgressManager.getInstance().run(object : Task.Modal(project, "Compiling Instrumented Sources", true) {
+                override fun run(indicator: ProgressIndicator) {
+                    indicator.isIndeterminate = true
+                    indicator.text = "Compiling $instrumentedCount instrumented files..."
+
+                    // Get the project's full compilation classpath from JavaParameters
+                    val projectClasspath = if (state is JavaCommandLine) {
+                        state.javaParameters.classPath.pathList.map { File(it) }
+                    } else {
+                        emptyList()
+                    }
+
+                    val result = InstrumentedSourceCompiler.compile(
+                        sourceDir = instrumentedDir,
+                        outputDir = classesDir,
+                        classpath = projectClasspath,
+                    )
+
+                    compilationSuccess = result.success
+                    if (!result.success) {
+                        thisLogger().error("Instrumented compilation failed: ${result.errors.take(3)}")
+                        CloverNotifications.notifyError(project,
+                            "Compilation of instrumented sources failed. Running without coverage.")
+                    } else {
+                        thisLogger().info("Compiled ${result.compiledCount} instrumented files")
+                    }
+                }
+            })
+
+            if (compilationSuccess) {
+                CloverNotifications.notifyInfo(project,
+                    "Instrumented $instrumentedCount files. Running tests with coverage...")
+            }
         }
 
-        // Step 2: Patch classpath and VM options
+        // Step 3: Patch classpath and VM options
         if (state is JavaCommandLine) {
             val javaParameters = state.javaParameters
+
+            // CRITICAL: Prepend instrumented classes BEFORE original classes
+            // so JVM loads the instrumented version
+            if (compilationSuccess && classesDir.exists()) {
+                javaParameters.classPath.addFirst(classesDir.absolutePath)
+                thisLogger().info("Prepended instrumented classes to classpath: ${classesDir.absolutePath}")
+            }
 
             val runtimeJar = CloverRuntimeLocator.findRuntimeJar()
             if (runtimeJar != null) {
