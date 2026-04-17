@@ -7,6 +7,9 @@
     <depends>com.intellij.modules.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <!-- Notification group for balloon notifications -->
+        <notificationGroup id="OpenClover" displayType="BALLOON"/>
+
         <!-- Application-level service: global config, logging bridge -->
         <applicationService
             serviceImplementation="org.openclover.idea.CloverApplicationService"/>

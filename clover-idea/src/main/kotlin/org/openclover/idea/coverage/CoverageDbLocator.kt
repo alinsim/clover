@@ -18,8 +18,12 @@ class CoverageDbLocator(private val projectBaseDir: File) {
 
     companion object {
         private const val DB_FILENAME = "clover.db"
-        private val SEARCH_PATHS = listOf(
+        private val MAVEN_SEARCH_PATHS = listOf(
             "target/clover",
+            ".clover",
+        )
+        private val GRADLE_SEARCH_PATHS = listOf(
+            "build/reports/clover",
             "build/clover",
             ".clover",
         )
@@ -31,13 +35,35 @@ class CoverageDbLocator(private val projectBaseDir: File) {
      * @return absolute path to the database file, or null if not found
      */
     fun findDatabase(): String? {
-        for (relativePath in SEARCH_PATHS) {
+        val searchPaths = getSearchPaths()
+        for (relativePath in searchPaths) {
             val candidate = File(projectBaseDir, "$relativePath/$DB_FILENAME")
             if (candidate.exists() && candidate.isFile) {
-                return candidate.absolutePath
+                return candidate.canonicalPath
             }
         }
         return null
+    }
+
+    /**
+     * Determine search paths based on project type.
+     * Gradle projects search Gradle-specific paths first, Maven projects search Maven paths first.
+     */
+    private fun getSearchPaths(): List<String> {
+        return when {
+            isGradleProject() -> GRADLE_SEARCH_PATHS
+            isMavenProject() -> MAVEN_SEARCH_PATHS
+            else -> GRADLE_SEARCH_PATHS + MAVEN_SEARCH_PATHS
+        }
+    }
+
+    private fun isGradleProject(): Boolean {
+        return File(projectBaseDir, "build.gradle").exists() ||
+            File(projectBaseDir, "build.gradle.kts").exists()
+    }
+
+    private fun isMavenProject(): Boolean {
+        return File(projectBaseDir, "pom.xml").exists()
     }
 
     /**
@@ -51,7 +77,7 @@ class CoverageDbLocator(private val projectBaseDir: File) {
         if (explicitInitString.isNotBlank()) {
             val explicitFile = File(explicitInitString)
             if (explicitFile.exists() && explicitFile.isFile) {
-                return explicitFile.absolutePath
+                return explicitFile.canonicalPath
             }
             // Explicit path was configured but file is missing (e.g., after mvn clean)
             thisLogger().warn(

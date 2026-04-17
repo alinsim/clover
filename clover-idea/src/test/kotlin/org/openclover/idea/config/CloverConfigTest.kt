@@ -44,6 +44,7 @@ class CloverProjectConfigTest {
         assertEquals("", config.contextFilterSpec)
         assertTrue(config.includePassedTestCoverageOnly)
         assertFalse(config.includeFailedTestCoverage)
+        assertEquals("UTF-8", config.encoding)
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.thisLogger
+import org.openclover.idea.AboutDialog
 import org.openclover.idea.CloverProjectService
 
 /**
@@ -128,7 +129,7 @@ class AboutAction : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun actionPerformed(e: AnActionEvent) {
-        // TODO: implement About dialog
-        thisLogger().info("OpenClover About dialog (not yet implemented)")
+        val project = e.project
+        AboutDialog(project).show()
     }
 }

@@ -39,7 +39,7 @@ class CoverageDbLocatorTest {
 
         val result = locator.findDatabase()
         assertNotNull(result, "Should find target/clover/clover.db")
-        assertEquals(dbFile.absolutePath, result)
+        assertEquals(dbFile.canonicalPath, result)
     }
 
     @Test
@@ -50,7 +50,7 @@ class CoverageDbLocatorTest {
 
         val result = locator.findDatabase()
         assertNotNull(result, "Should find build/clover/clover.db")
-        assertEquals(dbFile.absolutePath, result)
+        assertEquals(dbFile.canonicalPath, result)
     }
 
     @Test
@@ -61,11 +61,14 @@ class CoverageDbLocatorTest {
 
         val result = locator.findDatabase()
         assertNotNull(result, "Should find .clover/clover.db")
-        assertEquals(dbFile.absolutePath, result)
+        assertEquals(dbFile.canonicalPath, result)
     }
 
     @Test
-    fun prefersMavenOverGradle() {
+    fun prefersGradlePathsWhenBuildGradleExists() {
+        // Create build.gradle to indicate Gradle project
+        projectDir.resolve("build.gradle").toFile().writeText("// gradle")
+
         val mavenDb = projectDir.resolve("target/clover/clover.db").toFile()
         mavenDb.parentFile.mkdirs()
         mavenDb.createNewFile()
@@ -75,7 +78,24 @@ class CoverageDbLocatorTest {
         gradleDb.createNewFile()
 
         val result = locator.findDatabase()
-        assertEquals(mavenDb.absolutePath, result, "Should prefer Maven over Gradle")
+        assertEquals(gradleDb.canonicalPath, result, "Should prefer Gradle paths when build.gradle exists")
+    }
+
+    @Test
+    fun prefersMavenPathsWhenPomXmlExists() {
+        // Create pom.xml to indicate Maven project
+        projectDir.resolve("pom.xml").toFile().writeText("<project></project>")
+
+        val mavenDb = projectDir.resolve("target/clover/clover.db").toFile()
+        mavenDb.parentFile.mkdirs()
+        mavenDb.createNewFile()
+
+        val gradleDb = projectDir.resolve("build/clover/clover.db").toFile()
+        gradleDb.parentFile.mkdirs()
+        gradleDb.createNewFile()
+
+        val result = locator.findDatabase()
+        assertEquals(mavenDb.canonicalPath, result, "Should prefer Maven paths when pom.xml exists")
     }
 
     @Test
@@ -84,8 +104,8 @@ class CoverageDbLocatorTest {
         explicitDb.parentFile.mkdirs()
         explicitDb.createNewFile()
 
-        val result = locator.resolveInitString(explicitDb.absolutePath)
-        assertEquals(explicitDb.absolutePath, result, "Should use explicit path when provided")
+        val result = locator.resolveInitString(explicitDb.canonicalPath)
+        assertEquals(explicitDb.canonicalPath, result, "Should use explicit path when provided")
     }
 
     @Test
@@ -95,7 +115,7 @@ class CoverageDbLocatorTest {
         mavenDb.createNewFile()
 
         val result = locator.resolveInitString("/nonexistent/path/clover.db")
-        assertEquals(mavenDb.absolutePath, result, "Should fall back to auto-detect when explicit path is missing")
+        assertEquals(mavenDb.canonicalPath, result, "Should fall back to auto-detect when explicit path is missing")
     }
 
     @Test
@@ -105,7 +125,7 @@ class CoverageDbLocatorTest {
         mavenDb.createNewFile()
 
         val result = locator.resolveInitString("")
-        assertEquals(mavenDb.absolutePath, result, "Blank init string should trigger auto-detect")
+        assertEquals(mavenDb.canonicalPath, result, "Blank init string should trigger auto-detect")
     }
 
     @Test

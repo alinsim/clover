@@ -52,4 +52,7 @@ data class CloverProjectConfig(
 
     /** Include failed tests. */
     var includeFailedTestCoverage: Boolean = false,
+
+    /** Source file encoding for instrumentation. */
+    var encoding: String = "UTF-8",
 )

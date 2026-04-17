@@ -76,7 +76,7 @@ class CoverageEditorAnnotator(
 
         val document = editor.document
         val virtualFile = FileDocumentManager.getInstance().getFile(document) ?: return
-        val filePath = virtualFile.path
+        val filePath = virtualFile.canonicalPath ?: virtualFile.path
         val fileCoverage = state.fileCoverage[filePath] ?: return
 
         val highlighters = mutableListOf<RangeHighlighter>()

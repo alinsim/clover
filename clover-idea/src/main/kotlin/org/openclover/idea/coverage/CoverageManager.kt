@@ -20,6 +20,7 @@ import org.openclover.core.api.registry.HasMetricsFilter
 import org.openclover.core.api.registry.ProjectInfo
 import org.openclover.core.registry.metrics.BlockMetrics
 import org.openclover.idea.config.CloverProjectConfig
+import org.openclover.idea.util.CloverNotifications
 import java.io.File
 
 /**
@@ -136,14 +137,18 @@ class CoverageManager(
                 fileCoverage = fileCoverage,
             )
 
-            thisLogger().info(
-                "Coverage loaded: ${fileCoverage.size} files, " +
-                    "${projectInfo.metrics.numStatements} statements, " +
-                    "${formatPercent(projectInfo.metrics.pcCoveredElements)}% covered",
-            )
+            val summary = "Coverage loaded: ${fileCoverage.size} files, " +
+                "${projectInfo.metrics.numStatements} statements, " +
+                "${formatPercent(projectInfo.metrics.pcCoveredElements)}% covered"
+            thisLogger().info(summary)
+            CloverNotifications.notifyInfo(project, summary)
         } catch (e: Exception) {
             thisLogger().warn("Failed to load coverage database: $initString", e)
             _state.value = CoverageState.Error(e.message ?: "Unknown error")
+            CloverNotifications.notifyWarning(
+                project,
+                "Failed to load coverage database: ${e.message ?: "Unknown error"}",
+            )
         }
     }
 
@@ -155,7 +160,7 @@ class CoverageManager(
 
         for (pkg in projectInfo.allPackages) {
             for (fileInfo in pkg.files) {
-                val path = fileInfo.physicalFile?.absolutePath ?: continue
+                val path = fileInfo.physicalFile?.canonicalPath ?: continue
                 map[path] = buildFileCoverageInfo(fileInfo, coverageData)
             }
         }
