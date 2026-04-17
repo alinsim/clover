@@ -43,6 +43,7 @@ class CoverageManager(
 
     private var autoRefreshJob: Job? = null
     private val dbLocator: CoverageDbLocator? = project.basePath?.let { CoverageDbLocator(File(it)) }
+    private var hasNotifiedInitialLoad = false
 
     /**
      * Load or reload coverage data from the configured database path.
@@ -141,7 +142,12 @@ class CoverageManager(
                 "${projectInfo.metrics.numStatements} statements, " +
                 "${formatPercent(projectInfo.metrics.pcCoveredElements)}% covered"
             thisLogger().info(summary)
-            CloverNotifications.notifyInfo(project, summary)
+
+            // Only show notification on first load, not on every auto-refresh cycle
+            if (!hasNotifiedInitialLoad) {
+                hasNotifiedInitialLoad = true
+                CloverNotifications.notifyInfo(project, summary)
+            }
         } catch (e: Exception) {
             thisLogger().warn("Failed to load coverage database: $initString", e)
             _state.value = CoverageState.Error(e.message ?: "Unknown error")
