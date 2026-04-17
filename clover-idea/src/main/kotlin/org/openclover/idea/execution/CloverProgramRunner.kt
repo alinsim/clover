@@ -10,6 +10,9 @@ import com.intellij.execution.runners.RunContentBuilder
 import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.vfs.VfsUtilCore
@@ -52,23 +55,33 @@ class CloverProgramRunner : GenericProgramRunner<com.intellij.execution.configur
             return executeNormally(state, environment)
         }
 
-        // Step 1: Instrument sources
+        // Step 1: Instrument sources (modal progress to keep EDT responsive)
         val projectBasePath = project.basePath
             ?: throw ExecutionException("Cannot determine project base path")
 
         val dbPath = resolveDbPath(service, projectBasePath)
+        var instrumentedCount = 0
 
-        try {
-            val instrumentedCount = instrumentSources(project, projectBasePath, dbPath)
-            thisLogger().info("OpenClover: instrumented $instrumentedCount source files")
-            if (instrumentedCount > 0) {
-                CloverNotifications.notifyInfo(project,
-                    "Instrumented $instrumentedCount files. Running tests with coverage...")
+        ProgressManager.getInstance().run(object : Task.Modal(project, "Instrumenting Sources with Clover", true) {
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = false
+                indicator.text = "Collecting source files..."
+                indicator.fraction = 0.0
+
+                try {
+                    instrumentedCount = instrumentSources(project, projectBasePath, dbPath, indicator)
+                    thisLogger().info("OpenClover: instrumented $instrumentedCount source files")
+                } catch (e: Exception) {
+                    thisLogger().error("OpenClover instrumentation failed", e)
+                    CloverNotifications.notifyError(project,
+                        "Instrumentation failed: ${e.message}. Running tests without coverage.")
+                }
             }
-        } catch (e: Exception) {
-            thisLogger().error("OpenClover instrumentation failed", e)
-            CloverNotifications.notifyError(project,
-                "Instrumentation failed: ${e.message}. Running tests without coverage.")
+        })
+
+        if (instrumentedCount > 0) {
+            CloverNotifications.notifyInfo(project,
+                "Instrumented $instrumentedCount files. Running tests with coverage...")
         }
 
         // Step 2: Patch classpath and VM options
@@ -115,6 +128,7 @@ class CloverProgramRunner : GenericProgramRunner<com.intellij.execution.configur
         project: com.intellij.openapi.project.Project,
         projectBasePath: String,
         dbPath: String,
+        indicator: ProgressIndicator? = null,
     ): Int {
         val config = JavaInstrumentationConfig()
         config.setInitstring(dbPath)
@@ -136,8 +150,13 @@ class CloverProgramRunner : GenericProgramRunner<com.intellij.execution.configur
         instrumenter.startInstrumentation()
 
         var count = 0
+        val total = sourceFiles.size
+        indicator?.text = "Instrumenting $total source files..."
         try {
-            for (srcFile in sourceFiles) {
+            for ((index, srcFile) in sourceFiles.withIndex()) {
+                indicator?.fraction = index.toDouble() / total
+                indicator?.text2 = srcFile.name
+                if (indicator?.isCanceled == true) break
                 try {
                     instrumenter.instrument(srcFile, destDir, "UTF-8")
                     count++
