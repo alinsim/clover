@@ -91,17 +91,23 @@ class CloverProgramRunner : GenericProgramRunner<com.intellij.execution.configur
                     indicator.isIndeterminate = true
                     indicator.text = "Compiling $instrumentedCount instrumented files..."
 
-                    // Get the project's full compilation classpath from JavaParameters
+                    // Build compilation classpath: project classpath + clover-runtime
                     val projectClasspath = if (state is JavaCommandLine) {
                         state.javaParameters.classPath.pathList.map { File(it) }
                     } else {
                         emptyList()
                     }
+                    val runtimeJar = CloverRuntimeLocator.findRuntimeJar()
+                    val fullClasspath = if (runtimeJar != null) {
+                        projectClasspath + File(runtimeJar)
+                    } else {
+                        projectClasspath
+                    }
 
                     val result = InstrumentedSourceCompiler.compile(
                         sourceDir = instrumentedDir,
                         outputDir = classesDir,
-                        classpath = projectClasspath,
+                        classpath = fullClasspath,
                     )
 
                     compilationSuccess = result.success
