@@ -4,8 +4,9 @@ import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.JavaCommandLine
 import com.intellij.execution.configurations.RunProfile
 import com.intellij.execution.configurations.RunProfileState
-import com.intellij.execution.impl.DefaultJavaProgramRunner
 import com.intellij.execution.runners.ExecutionEnvironment
+import com.intellij.execution.runners.GenericProgramRunner
+import com.intellij.execution.runners.RunContentBuilder
 import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.thisLogger
@@ -22,17 +23,16 @@ import java.io.File
 /**
  * Program runner for the "Run with Clover Coverage" executor.
  *
- * This is the ONLY code path that instruments sources. Normal Run/Debug
- * is completely untouched — no instrumentation, no coverage.
+ * Extends GenericProgramRunner (not DefaultJavaProgramRunner) to ensure
+ * IntelliJ dispatches to us instead of the default runner.
  *
  * Flow:
  * 1. Instrument sources to a temp directory
- * 2. Add clover-runtime.jar to the test classpath
- * 3. Set clover.initstring JVM property
- * 4. Delegate to the standard Java runner
- * 5. CoverageReloadListener picks up process termination and loads results
+ * 2. Patch JavaParameters: add clover-runtime.jar, set clover.initstring
+ * 3. Execute the run profile state
+ * 4. CoverageReloadListener picks up process termination and loads results
  */
-class CloverProgramRunner : DefaultJavaProgramRunner() {
+class CloverProgramRunner : GenericProgramRunner<com.intellij.execution.configurations.RunnerSettings>() {
 
     override fun getRunnerId(): String = RUNNER_ID
 
@@ -45,43 +45,63 @@ class CloverProgramRunner : DefaultJavaProgramRunner() {
         val project = environment.project
         val service = CloverProjectService.getInstance(project)
 
+        thisLogger().info("CloverProgramRunner.doExecute() called for: ${environment.runProfile.name}")
+
         if (!service.isEnabled) {
             thisLogger().info("OpenClover is disabled — running without coverage")
-            return super.doExecute(state, environment)
+            return executeNormally(state, environment)
         }
-
-        thisLogger().info("Running with OpenClover coverage for: ${environment.runProfile.name}")
 
         // Step 1: Instrument sources
         val projectBasePath = project.basePath
             ?: throw ExecutionException("Cannot determine project base path")
 
         val dbPath = resolveDbPath(service, projectBasePath)
-        val instrumentedCount = instrumentSources(project, projectBasePath, dbPath)
-        thisLogger().info("Instrumented $instrumentedCount source files")
+
+        try {
+            val instrumentedCount = instrumentSources(project, projectBasePath, dbPath)
+            thisLogger().info("OpenClover: instrumented $instrumentedCount source files")
+            if (instrumentedCount > 0) {
+                CloverNotifications.notifyInfo(project,
+                    "Instrumented $instrumentedCount files. Running tests with coverage...")
+            }
+        } catch (e: Exception) {
+            thisLogger().error("OpenClover instrumentation failed", e)
+            CloverNotifications.notifyError(project,
+                "Instrumentation failed: ${e.message}. Running tests without coverage.")
+        }
 
         // Step 2: Patch classpath and VM options
         if (state is JavaCommandLine) {
             val javaParameters = state.javaParameters
 
-            // Add clover-runtime to classpath
             val runtimeJar = CloverRuntimeLocator.findRuntimeJar()
             if (runtimeJar != null) {
                 javaParameters.classPath.add(runtimeJar)
                 thisLogger().info("Added Clover runtime to classpath: $runtimeJar")
             } else {
+                thisLogger().warn("Cannot find Clover runtime JAR")
                 CloverNotifications.notifyWarning(project,
                     "Cannot find Clover runtime JAR — coverage may not work")
             }
 
-            // Set database path
             javaParameters.vmParametersList.defineProperty("clover.initstring", dbPath)
+            thisLogger().info("Set clover.initstring=$dbPath")
         } else {
             thisLogger().warn("Run profile is not JavaCommandLine — cannot inject Clover runtime")
         }
 
-        // Step 3: Execute (CoverageReloadListener will handle post-run reload)
-        return super.doExecute(state, environment)
+        // Step 3: Execute
+        return executeNormally(state, environment)
+    }
+
+    private fun executeNormally(
+        state: RunProfileState,
+        environment: ExecutionEnvironment,
+    ): RunContentDescriptor? {
+        val executionResult = state.execute(environment.executor, this)
+            ?: return null
+        return RunContentBuilder(executionResult, environment).showRunContent(environment.contentToReuse)
     }
 
     private fun resolveDbPath(service: CloverProjectService, projectBasePath: String): String {
@@ -101,20 +121,17 @@ class CloverProgramRunner : DefaultJavaProgramRunner() {
         config.projectName = project.name
         config.encoding = "UTF-8"
 
-        // Collect source files under read action
         val sourceFiles = ReadAction.compute<List<File>, RuntimeException> {
             collectSourceFiles(project)
         }
         if (sourceFiles.isEmpty()) return 0
 
-        // Clean and create instrumented output directory
         val destDir = File(projectBasePath, ".clover/instrumented")
         if (destDir.exists()) {
             destDir.deleteRecursively()
         }
         destDir.mkdirs()
 
-        // Instrument
         val instrumenter = Instrumenter(config)
         instrumenter.startInstrumentation()
 
